@@ -423,8 +423,14 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             //"5s",
         ];
 
-        executeArgs.EnvironmentalVariables["PATH"] = new FileInfo(abAv1).Directory.FullName +";" + new FileInfo(ffmpegBtbn).Directory.FullName;
-        args.Logger?.ILog("New Path: " + executeArgs.EnvironmentalVariables["PATH"]);
+        // Append both to the existing PATH
+        string abAv1Path = new FileInfo(abAv1).Directory!.FullName;
+        string ffmpegPath = new FileInfo(ffmpegBtbn).Directory!.FullName;
+        
+        string? existingPath = Environment.GetEnvironmentVariable("PATH");
+        string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
+        executeArgs.EnvironmentalVariables["PATH"] = newPath;
+        args.Logger?.ILog("New Path: " + newPath);
 
         // if (OperatingSystem.IsWindows() == false) {
         //     executeArgs.Command = "bash";
