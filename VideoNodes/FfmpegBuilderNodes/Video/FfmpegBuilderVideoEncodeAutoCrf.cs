@@ -380,7 +380,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (targetCodec.Contains("qsv", StringComparison.InvariantCultureIgnoreCase))
             command.AddRange(["-look_ahead", "1", "-extbrc", "1", "look_ahead_depth", "40"]);
 
-        var videoPixelFormat = targetCodec.Contains("qsv") ? "nv12" : "yuv420p";
+        var videoPixelFormat = "yuv420p";
 
         if (videoStream.Stream.Is10Bit)
         {
