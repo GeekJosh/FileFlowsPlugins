@@ -567,8 +567,8 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
     class CrfSearchResult
     {
-        public List<string> Command;
-        public List<CrfScore> Data;
+        public List<string> Command = [];
+        public List<CrfScore> Data = [];
         public CrfScore Winner;
         public string Message;
         public bool Error;
