@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using FileFlows.VideoNodes.FfmpegBuilderNodes.Models;
+using FileFlows.VideoNodes.Helpers;
 
 namespace FileFlows.VideoNodes.FfmpegBuilderNodes;
 
@@ -19,16 +20,42 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     public override string HelpUrl =>
         "https://fileflows.com/docs/plugins/video-nodes/ffmpeg-builder/video-encode-auto-crf";
 
+    /// <summary>
+    /// The codec to use for encoding. Options include "h264", "hevc", "av1", etc.
+    /// Defaults to "hevc".
+    /// </summary>
     [Select(nameof(CodecOptions), 1)]
     [DefaultValue("hevc")]
     public string Codec { get; set; }
 
-    [NumberFloat(2)] [DefaultValue(11.5f)] public float MaxBitrate { get; set; }
+    /// <summary>
+    /// The maximum bitrate allowed for encoding, in megabits per second (Mbps).
+    /// Defaults to 11.5.
+    /// </summary>
+    [NumberFloat(2)]
+    [DefaultValue(11.5f)]
+    public float MaxBitrate { get; set; }
 
-    [Boolean(3)] [DefaultValue(false)] public bool FixDolby5 { get; set; }
+    /// <summary>
+    /// Whether to apply a fix for Dolby Vision profile 5 decoding issues.
+    /// Defaults to false.
+    /// </summary>
+    [Boolean(3)]
+    [DefaultValue(false)]
+    public bool FixDolby5 { get; set; }
 
-    [Boolean(4)] [DefaultValue(false)] public bool ErrorOnFail { get; set; }
+    /// <summary>
+    /// Whether to treat failure to find a suitable CRF as an error and stop processing.
+    /// Defaults to false.
+    /// </summary>
+    [Boolean(4)]
+    [DefaultValue(false)]
+    public bool ErrorOnFail { get; set; }
 
+    /// <summary>
+    /// Gets the list of available codec options for encoding.
+    /// Each option has a label and a corresponding codec value.
+    /// </summary>
     public static List<ListOption> CodecOptions => new()
     {
         new() { Label = "H.264", Value = "h264" },
@@ -74,7 +101,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         var localFile = localFileResult.Value;
 
-        var videoBitRate = GetBitrate(args, Model.VideoInfo, localFile);
+        var videoBitRate = VideoHelper.GetBitrate(args, Model.VideoInfo, localFile);
         if (videoBitRate <= 0)
             return args.Fail("Unable to determine video bitrate");
 
@@ -83,7 +110,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         var bitratePercent = (int)Math.Floor((100 / videoBitRate) * targetBitRate);
 
         // Video Description
-        var videoDescription = $"{BytesToHuman(videoBitRate)} ${Codec}";
+        var videoDescription = $"{GeneralHelper.HumanizeBitrate(videoBitRate)} ${Codec}";
         List<string> videoColors = [];
         if (video.Stream.HDR)
             videoColors.Add("HDR");
@@ -115,7 +142,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (videoBitRate > targetBitRate)
         {
             args.Logger?.WLog("Unacceptable bitrate");
-            args.Logger?.WLog($"Bitrate is ${BytesToHuman(videoBitRate)}, higher than ${MaxBitrate} MBps");
+            args.Logger?.WLog($"Bitrate is ${GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than ${MaxBitrate} MBps");
             args.Logger?.ILog("Will fallback to bitrate encoding");
             forceEncode = true;
 
@@ -156,7 +183,10 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (attempt.Winner != null)
         {
             var crf_arg = GetCrfArg(encoder);
-            args.Variables["ManualParameters"] = $"{attempt.Command} ${crf_arg}:v ${attempt.Winner.Crf}";
+            video.EncodingParameters.Clear();
+            video.EncodingParameters.AddRange(attempt.Command);
+            video.EncodingParameters.AddRange([$"{crf_arg}:v", attempt.Winner.Crf]);
+            //args.Variables["ManualParameters"] = $"{attempt.Command} {crf_arg}:v {attempt.Winner.Crf}";
             args.Logger.ILog($"Attempt successful with {attempt.Winner.Size}% size, ${attempt.Winner.Score}% VMAF");
             args.AdditionalInfoRecorder("Score", attempt.Winner.Score, 1000, null);
             args.AdditionalInfoRecorder("CRF", attempt.Winner.Crf, 1000, null);
@@ -178,7 +208,11 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         }
 
         // setup bitrate encode
-        args.Variables["ManualParameters"] = string.Join(" ", attempt.Command);
+        //args.Variables["ManualParameters"] = string.Join(" ", attempt.Command);
+        
+        video.EncodingParameters.Clear();
+        video.EncodingParameters.AddRange(attempt.Command);
+        
         var t = targetBitRate / 1024.00 / 1024.00;
 
         video.AdditionalParameters.AddRange([
@@ -192,9 +226,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             $"{Math.Round(t)}M"
         ]);
         args.Logger?.ILog(
-            $"Falling back to bitrate encoding as video is unacceptable ${BytesToHuman(targetBitRate)}");
+            $"Falling back to bitrate encoding as video is unacceptable ${GeneralHelper.HumanizeBitrate(targetBitRate)}");
         args.AdditionalInfoRecorder("Score", "Not found", 1000, null);
-        args.AdditionalInfoRecorder("CRF", BytesToHuman(targetBitRate), 1000, null);
+        args.AdditionalInfoRecorder("CRF", GeneralHelper.HumanizeBitrate(targetBitRate), 1000, null);
 
         // Falling back bitrate encode as we could not find a suitable CRF
         return 1;
@@ -264,47 +298,8 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         return forceEncode;
     }
-
-    private float GetBitrate(NodeParameters args, VideoInfo videoInfo, string localFile)
-    {
-        var video = videoInfo.VideoStreams.FirstOrDefault(x => x.Bitrate > 0);
-
-        if(video != null)
-            return video.Bitrate;
-        
-
-        args.Logger?.ILog("Bitrate not found in metadata, calculating...");
-
-        float GetEstimatedVideoBitrate(float totalBitrate)
-        {
-            if (videoInfo.AudioStreams?.Any() != true)
-                return totalBitrate;
-
-            foreach (var audio in videoInfo.AudioStreams)
-                totalBitrate -= audio.Bitrate > 0 ? audio.Bitrate : totalBitrate * 0.05f;
-
-            return Math.Max(0, totalBitrate);
-        }
-
-        if (videoInfo.Bitrate > 0)
-            return GetEstimatedVideoBitrate(videoInfo.Bitrate);
-
-        // Fallback to file size-based calculation
-        var fileSize = new FileInfo(localFile).Length; // bytes
-        var duration = videoInfo.VideoStreams[0].Duration;
-        if (duration.TotalSeconds < 1)
-        {
-            args.Logger?.WLog("No duration available to calculate bitrate.");
-            return 0;
-        }
-
-        var totalBitrate = (float)(fileSize * 8 / duration.TotalSeconds); // bits per second
-        args.Logger?.ILog($"Calculated total bitrate from file size and duration: {totalBitrate} bps");
-
-        return GetEstimatedVideoBitrate(totalBitrate);
-    }
-
-
+    
+   
     /// <summary>
     /// Gets the encoder to use
     /// </summary>
@@ -347,7 +342,15 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         return Codec.ToLower();
     }
-
+    
+    /// <summary>
+    /// Gets the appropriate CRF argument name for a given codec.
+    /// </summary>
+    /// <param name="codec">The codec name (e.g., "h264_nvenc", "hevc_qsv").</param>
+    /// <returns>
+    /// The command-line argument to specify CRF or quality level for the codec.
+    /// Examples: "-cq" for nvenc, "-q" for vaapi, "-global_quality" for qsv, or "-crf" as default.
+    /// </returns>
     private static string GetCrfArg(string codec)
     {
         codec = codec.ToLowerInvariant();
@@ -357,6 +360,16 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         return "-crf";
     }
 
+
+    /// <summary>
+    /// Attempts to find a tool executable by searching multiple directories.
+    /// </summary>
+    /// <param name="tool">The name of the tool executable (e.g., "ffmpeg").</param>
+    /// <param name="paths">An array of directory paths to search for the tool.</param>
+    /// <returns>
+    /// A <see cref="Result{T}"/> containing the full path to the tool if found;
+    /// otherwise, a failure result with an error message.
+    /// </returns>
     private static Result<string> FindTool(string tool, params string[] paths)
     {
         foreach (var path in paths)
@@ -369,6 +382,22 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         return Result<string>.Fail($"Tool {tool} not found in any provided paths: " + string.Join(", ", paths));
     }
 
+    /// <summary>
+    /// Performs a CRF search encoding operation using the specified parameters and external tool.
+    /// </summary>
+    /// <param name="args">The node parameters containing context and utilities.</param>
+    /// <param name="abAv1">The full path to the ab-av1 executable.</param>
+    /// <param name="localFile">The path to the input video file.</param>
+    /// <param name="targetCodec">The target codec to use for encoding (e.g., "hevc", "h264").</param>
+    /// <param name="preset">The encoding preset to apply (e.g., "slow", "medium").</param>
+    /// <param name="bitratePercent">The target bitrate percentage relative to the original video bitrate.</param>
+    /// <param name="targetPercent">The target VMAF quality percentage to achieve.</param>
+    /// <param name="videoBitrate">The bitrate of the source video in bits per second.</param>
+    /// <param name="videoStream">The video stream metadata and settings.</param>
+    /// <returns>
+    /// A <see cref="CrfSearchResult"/> containing the results of the CRF search,
+    /// including the best CRF score found, the full command used, and any errors encountered.
+    /// </returns>
     private CrfSearchResult CrfSearch(NodeParameters args, string abAv1, string localFile, string targetCodec,
         string preset,
         int bitratePercent, int targetPercent, float videoBitrate, FfmpegVideoStream videoStream)
@@ -391,7 +420,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         var targetBitRate = (bitratePercent / 100f) * videoBitrate;
 
-        args.Logger?.ILog($"Searching for CRF under {BytesToHuman(targetBitRate)} @ {targetPercent}% original quality");
+        args.Logger?.ILog($"Searching for CRF under {GeneralHelper.HumanizeBitrate(targetBitRate)} @ {targetPercent}% original quality");
 
 
         var executeArgs = new ExecuteArgs();
@@ -432,18 +461,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         executeArgs.EnvironmentalVariables["PATH"] = newPath;
         args.Logger?.ILog("New Path: " + newPath);
 
-        // if (OperatingSystem.IsWindows() == false) {
-        //     executeArgs.Command = "bash";
-        //     var args = executeArgs.argumentList.join(" ");
-        //     var cache = args.TempPath.replace(/[^\/]+$/, "");
-        //
-        //     executeArgs.argumentList = [
-        //         "-c",
-        //         `XDG_CACHE_HOME='${cache}' PATH=${path}:\$PATH ${abAv1} ${args}`,
-        //         "/dev/null",
-        //     ];
-        // }
-
         var returnValue = new CrfSearchResult();
         returnValue.Command = command;
 
@@ -481,12 +498,11 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             match = Regex.Match(line, @"crf ([0-9.]+) VMAF ([0-9.]+) predicted.*\(([0-9.]+)%", RegexOptions.IgnoreCase);
             if (match.Success)
             {
-                returnValue.Data.Add(new()
-                {
-                    Crf = match.Groups[1].Value.Trim(),
-                    Score = match.Groups[2].Value.Trim(),
-                    Size = match.Groups[3].Value.Trim()
-                });
+                returnValue.Data.Add(new(
+                    match.Groups[1].Value.Trim(),
+                    match.Groups[2].Value.Trim(),
+                    match.Groups[3].Value.Trim())
+                );
             }
 
             match = Regex.Match(line, @"crf ([0-9.]+) successful", RegexOptions.IgnoreCase);
@@ -531,15 +547,43 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         return returnValue;
     }
 
-
+    /// <summary>
+    /// Represents the result of a CRF search operation,
+    /// including the command used, collected data points, the winning CRF entry,
+    /// an error message, and an error flag.
+    /// </summary>
     class CrfSearchResult
     {
-        public List<string> Command = [];
-        public List<CrfScore> Data = [];
+        /// <summary>
+        /// The command arguments used during the CRF search.
+        /// </summary>
+        public List<string> Command = new();
+
+        /// <summary>
+        /// The list of CRF score data collected during the search.
+        /// </summary>
+        public List<CrfScore> Data = new();
+
+        /// <summary>
+        /// The CRF score entry that was selected as the winner.
+        /// </summary>
         public CrfScore Winner;
+
+        /// <summary>
+        /// An optional message, typically containing error or status information.
+        /// </summary>
         public string Message;
+
+        /// <summary>
+        /// Indicates whether the CRF search operation resulted in an error.
+        /// </summary>
         public bool Error;
 
+        /// <summary>
+        /// Creates a failed CRF search result with the specified error message.
+        /// </summary>
+        /// <param name="message">The error message describing the failure.</param>
+        /// <returns>A <see cref="CrfSearchResult"/> instance representing failure.</returns>
         public static CrfSearchResult Failed(string message) => new CrfSearchResult
         {
             Message = message,
@@ -548,25 +592,15 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         };
     }
 
-    class CrfScore
-    {
-        public string Crf { get; set; }
-        public string Score { get; set; }
-        public string Size { get; set; }
-    }
 
-    private static string BytesToHuman(float bytes)
-    {
-        string[] sizes = { "Bps", "KBps", "MBps", "GBps", "TBps" };
-        int order = 0;
-        double len = bytes;
-        while (len >= 1024 && order < sizes.Length - 1)
-        {
-            order++;
-            len /= 1024;
-        }
+    /// <summary>
+    /// Represents a single CRF (Constant Rate Factor) result entry,
+    /// including the CRF value, predicted VMAF score, and encoded size percentage.
+    /// </summary>
+    /// <param name="Crf">The CRF value used during encoding.</param>
+    /// <param name="Score">The predicted VMAF quality score.</param>
+    /// <param name="Size">The encoded file size as a percentage of the original.</param>
+    record CrfScore(string Crf, string Score, string Size);
 
-        return $"{len:0.##} {sizes[order]}";
-    }
 
 }
