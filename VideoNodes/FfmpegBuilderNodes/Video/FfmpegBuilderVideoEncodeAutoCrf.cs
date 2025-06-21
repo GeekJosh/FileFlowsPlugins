@@ -110,7 +110,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         var bitratePercent = (int)Math.Floor((100 / videoBitRate) * targetBitRate);
 
         // Video Description
-        var videoDescription = $"{GeneralHelper.HumanizeBitrate(videoBitRate)} ${Codec}";
+        var videoDescription = $"{GeneralHelper.HumanizeBitrate(videoBitRate)} {Codec}";
         List<string> videoColors = [];
         if (video.Stream.HDR)
             videoColors.Add("HDR");
@@ -129,7 +129,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         var secondTryScore = 95;
         var preset = "slow";
 
-        args.Logger?.ILog($"Video is ${videoDescription}");
+        args.Logger?.ILog($"Video is {videoDescription}");
 
         // if we're cropping black bars, we will force the encode
         bool croppingBlackBars =
@@ -142,7 +142,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (videoBitRate > targetBitRate)
         {
             args.Logger?.WLog("Unacceptable bitrate");
-            args.Logger?.WLog($"Bitrate is ${GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than ${MaxBitrate} MBps");
+            args.Logger?.WLog($"Bitrate is {GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than {MaxBitrate} MBps");
             args.Logger?.ILog("Will fallback to bitrate encoding");
             forceEncode = true;
 
@@ -187,7 +187,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             video.EncodingParameters.AddRange(attempt.Command);
             video.EncodingParameters.AddRange([$"{crf_arg}:v", attempt.Winner.Crf]);
             //args.Variables["ManualParameters"] = $"{attempt.Command} {crf_arg}:v {attempt.Winner.Crf}";
-            args.Logger.ILog($"Attempt successful with {attempt.Winner.Size}% size, ${attempt.Winner.Score}% VMAF");
+            args.Logger.ILog($"Attempt successful with {attempt.Winner.Size}% size, {attempt.Winner.Score}% VMAF");
             args.AdditionalInfoRecorder("Score", attempt.Winner.Score, 1000, null);
             args.AdditionalInfoRecorder("CRF", attempt.Winner.Crf, 1000, null);
             return 1;
@@ -226,7 +226,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             $"{Math.Round(t)}M"
         ]);
         args.Logger?.ILog(
-            $"Falling back to bitrate encoding as video is unacceptable ${GeneralHelper.HumanizeBitrate(targetBitRate)}");
+            $"Falling back to bitrate encoding as video is unacceptable {GeneralHelper.HumanizeBitrate(targetBitRate)}");
         args.AdditionalInfoRecorder("Score", "Not found", 1000, null);
         args.AdditionalInfoRecorder("CRF", GeneralHelper.HumanizeBitrate(targetBitRate), 1000, null);
 
@@ -407,7 +407,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         command.AddRange(["-g", (videoStream.Stream.FramesPerSecond * 10).ToString(CultureInfo.InvariantCulture)]);
 
         if (targetCodec.Contains("qsv", StringComparison.InvariantCultureIgnoreCase))
-            command.AddRange(["-look_ahead", "1", "-extbrc", "1", "look_ahead_depth", "40"]);
+            command.AddRange(["-look_ahead", "1", "-extbrc", "1", "-look_ahead_depth", "40"]);
 
         var videoPixelFormat = "yuv420p";
 
