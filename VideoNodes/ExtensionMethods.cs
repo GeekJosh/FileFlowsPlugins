@@ -9,11 +9,10 @@ internal static class ExtensionMethods
     /// Returns an empty string as null, otherwise returns the original string
     /// </summary>
     /// <param name="str">the input string</param>
+    /// <param name="alsoEmptyString">an optional string to also be considered empty</param>
     /// <returns>the string or null if empty</returns>
-    public static string? EmptyAsNull(this string str)
-    {
-        return str == string.Empty ? null : str;
-    }
+    public static string? EmptyAsNull(this string str, string alsoEmptyString = "")
+        => string.IsNullOrEmpty(str) || str.Equals(alsoEmptyString) ? null : str;
 
     /// <summary>
     /// Tries to perform a regex match

@@ -42,11 +42,16 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     /// <inheritdoc />
     public override int Execute(NodeParameters args)
     {
+        string error = string.Empty;
         // Checking dependencies
-        var abAv1Result = FindTool("ab-av1", ["/opt/autocrf", "/usr/local/bin"]);
-        if (abAv1Result.Failed(out var error))
-            return args.Fail(error);
-        var abAv1 = abAv1Result.Value;
+        string abAv1 = args.GetToolPath("ab-av1")?.EmptyAsNull("ab-av1");
+        if (string.IsNullOrWhiteSpace(abAv1))
+        {
+            var abAv1Result = FindTool("ab-av1", ["/opt/autocrf", "/usr/local/bin"]);
+            if (abAv1Result.Failed(out error))
+                return args.Fail(error);
+            abAv1 = abAv1Result.Value;
+        }
 
         if (LoadFFmpegs(args) == -1)
             return -1;
@@ -417,7 +422,8 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             //"--sample-duration",
             //"5s",
         ];
-
+        
+        executeArgs.EnvironmentalVariables["PATH"] = new FileInfo(ffmpegBtbn).Directory.FullName;
 
         // if (OperatingSystem.IsWindows() == false) {
         //     executeArgs.Command = "bash";
