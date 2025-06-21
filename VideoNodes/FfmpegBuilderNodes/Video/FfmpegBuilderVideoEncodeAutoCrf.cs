@@ -526,43 +526,10 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             }
         }
 
-        PrintTable(args.Logger, returnValue);
+        args.Logger?.Table(returnValue.Data, "CRF Search Results", new[] { "Crf", "Score", "Size" });
 
         return returnValue;
     }
-
-    /// <summary>
-    /// Prints the CRF Search Result to the log as a table
-    /// </summary>
-    /// <param name="logger">the logger</param>
-    /// <param name="result">the search result</param>
-    void PrintTable(ILogger logger, CrfSearchResult result)
-    {
-        logger.ILog(" ");
-        logger.ILog("| CRF | Score | Size |");
-        logger.ILog("----------------------");
-
-        foreach (var line in result.Data ?? [])
-        {
-            string crf = line.Crf?.PadLeft(4).Substring(0, Math.Min(4, line.Crf.Length)) ?? "    ";
-            string score = line.Score?.PadLeft(5) ?? "     ";
-            string size = line.Size?.PadLeft(3) ?? "   ";
-            logger.ILog($"|{crf} | {score} | {size}% |");
-        }
-
-        if (result.Winner != null)
-        {
-            string crf = result.Winner.Crf?.PadLeft(4).Substring(0, Math.Min(4, result.Winner.Crf.Length)) ??
-                         "    ";
-            string score = result.Winner.Score?.PadLeft(5) ?? "     ";
-            string size = result.Winner.Size?.PadLeft(3) ?? "   ";
-            logger.ILog("----------------------");
-            logger.ILog($"|{crf} | {score} | {size}% |");
-        }
-
-        logger.ILog(" ");
-    }
-
 
 
     class CrfSearchResult
