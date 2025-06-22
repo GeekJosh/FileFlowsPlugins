@@ -104,7 +104,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (videoBitRate <= 0)
             return args.Fail("Unable to determine video bitrate");
 
-
         var targetBitRate = MaxBitrate * 1024 * 1024;
         var bitratePercent = (int)Math.Floor((100 / videoBitRate) * targetBitRate);
 
@@ -164,7 +163,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             return 2;
         }
 
-
         string encoder = GetEncoder(args);
 
         args.Logger?.ILog($"Targeting {firstTryPercentage}% size, {firstTryScore}% VMAF");
@@ -197,14 +195,12 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             return args.Fail($"AutoCRF: {attempt.Message}");
         }
 
-
         // fallback
         if (forceEncode == false)
         {
             args.Logger?.ILog("Falling back to copy as codec and bitrate are acceptable");
             return 2;
         }
-
         
         video.EncodingParameters.Clear();
         video.EncodingParameters.AddRange(attempt.Command);
@@ -212,14 +208,10 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         var t = targetBitRate / 1024.00 / 1024.00;
 
         video.AdditionalParameters.AddRange([
-            "-b:v:{index}",
-            $"{t:F2}M",
-            "-minrate",
-            $"{(t * 0.75):F2}M",
-            "-maxrate",
-            $"{(t * 1.25):F2}M",
-            "-bufsize",
-            $"{Math.Round(t)}M"
+            "-b:v:{index}", $"{t:F2}M",
+            "-minrate", $"{(t * 0.75):F2}M",
+            "-maxrate", $"{(t * 1.25):F2}M",
+            "-bufsize", $"{Math.Round(t)}M"
         ]);
         args.Logger?.ILog(
             $"Falling back to bitrate encoding as video is unacceptable {GeneralHelper.HumanizeBitrate(targetBitRate)}");
@@ -393,34 +385,22 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         args.Logger?.ILog($"Searching for CRF under {GeneralHelper.HumanizeBitrate(targetBitRate)} @ {targetPercent}% original quality");
 
-
         var executeArgs = new ExecuteArgs();
         executeArgs.Command = abAv1;
         executeArgs.ArgumentList =
         [
             "crf-search",
-            "-i",
-            localFile,
-            "--preset",
-            preset,
-            "-e",
-            targetCodec,
-            "--temp-dir",
-            args.TempPath,
-            "--min-vmaf",
-            targetPercent.ToString(),
-            "--max-encoded-percent",
-            bitratePercent.ToString(),
-            "--pix-format",
-            videoPixelFormat,
-            "--min-crf",
-            "5",
-            "--max-crf",
-            "25",
-            "--min-samples",
-            "5",
-            //"--sample-duration",
-            //"5s",
+            "-i", localFile,
+            "--preset", preset,
+            "-e", targetCodec,
+            "--temp-dir", args.TempPath,
+            "--min-vmaf", targetPercent.ToString(),
+            "--max-encoded-percent",  bitratePercent.ToString(),
+            "--pix-format", videoPixelFormat,
+            "--min-crf",  "5",
+            "--max-crf", "25",
+            "--min-samples",  "5",
+            //"--sample-duration", "5s",
         ];
         executeArgs.Silent = true;
         
@@ -498,38 +478,23 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         var executeAbAv1 = args.Execute(executeArgs);
 
-        bool loggedOutput = false;
-        if (executeAbAv1.ExitCode != 0)
-        {
-            if (executeAbAv1.Output.Contains("Failed to find a suitable crf",
-                    StringComparison.InvariantCultureIgnoreCase))
-            {
-                returnValue.Message = "Failed to find a suitable crf";
-                if (ErrorOnFail)
-                {
-                    returnValue.Error = true;
-                }
-            }
-            else
-            {
-                args.Logger?.WLog("\n------------------------------------------ ab-av1 output ------------------------------------------\n" +
-                                  executeAbAv1.Output +
-                                  "\n---------------------------------------------------------------------------------------------------");
-                loggedOutput = true;
-                returnValue.Message =
-                    "Failed to execute ab-av1: " + executeAbAv1.ExitCode;
-                returnValue.Error = true;
-            }
-        }
-
-        if (loggedOutput == false)
-        {
-            args.Logger?.ILog("\n------------------------------------------ ab-av1 output ------------------------------------------\n" +
-                              executeAbAv1.Output +
-                              "\n---------------------------------------------------------------------------------------------------");
-        }
-
+        args.Logger?.Section("av-av1 output",  executeAbAv1.StandardOutput);
+        args.Logger?.Section("ab-av1 error", executeAbAv1.StandardError, LogType.Warning);
         args.Logger?.Table(returnValue.Data, "CRF Search Results", new[] { "Crf", "Score", "Size" });
+
+        if (executeAbAv1.ExitCode == 0)
+            return returnValue;
+        
+        if (executeAbAv1.Output.Contains("Failed to find a suitable crf",  StringComparison.InvariantCultureIgnoreCase))
+        {
+            returnValue.Message = "Failed to find a suitable crf";
+            returnValue.Error = ErrorOnFail;
+        }
+        else
+        {
+            returnValue.Message = "Failed to execute ab-av1: " + executeAbAv1.ExitCode;
+            returnValue.Error = true;
+        }
 
         return returnValue;
     }
@@ -567,7 +532,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         public bool Error;
     }
 
-
     /// <summary>
     /// Represents a single CRF (Constant Rate Factor) result entry,
     /// including the CRF value, predicted VMAF score, and encoded size percentage.
@@ -576,6 +540,4 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     /// <param name="Score">The predicted VMAF quality score.</param>
     /// <param name="Size">The encoded file size as a percentage of the original.</param>
     record CrfScore(string Crf, string Score, string Size);
-
-
 }
