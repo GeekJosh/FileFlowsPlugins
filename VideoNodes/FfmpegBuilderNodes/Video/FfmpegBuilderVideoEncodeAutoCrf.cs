@@ -70,6 +70,10 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     {
         if (Model.VideoInfo.VideoStreams?.Any() != true)
             return args.Fail("No video streams found.");
+
+        var video = Model.VideoStreams?.FirstOrDefault(x => x.Deleted == false);
+        if (video?.Stream == null)
+            return args.Fail("No video stream");
         
         string error = string.Empty;
         // Checking dependencies
@@ -87,10 +91,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         ffmpegBtbn = btbnResult.Value;
 
         Codec = Codec?.EmptyAsNull() ?? "hevc";
-
-        var video = Model.VideoStreams?.FirstOrDefault(x => x.Deleted == false);
-        if (video?.Stream == null)
-            return args.Fail("No video stream");
 
         string currentCodec = video.Stream.Codec?.ToLowerInvariant() ?? string.Empty;
 
@@ -497,6 +497,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         var executeAbAv1 = args.Execute(executeArgs);
 
+        bool loggedOutput = false;
         if (executeAbAv1.ExitCode != 0)
         {
             if (executeAbAv1.Output.Contains("Failed to find a suitable crf",
@@ -510,11 +511,21 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             }
             else
             {
-                args.Logger?.WLog(executeAbAv1.Output);
+                args.Logger?.WLog("--------------------------- ab-av1 output --------------------------\n" +
+                                  executeAbAv1.Output + "\n" +
+                                  "--------------------------------------------------------------------");
+                loggedOutput = true;
                 returnValue.Message =
                     "Failed to execute ab-av1: " + executeAbAv1.ExitCode;
                 returnValue.Error = true;
             }
+        }
+
+        if (loggedOutput == false)
+        {
+            args.Logger?.ILog("--------------------------- ab-av1 output --------------------------\n" +
+                              executeAbAv1.Output + "\n" +
+                              "--------------------------------------------------------------------");
         }
 
         args.Logger?.Table(returnValue.Data, "CRF Search Results", new[] { "Crf", "Score", "Size" });
