@@ -511,9 +511,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             }
             else
             {
-                args.Logger?.WLog("--------------------------- ab-av1 output --------------------------\n" +
-                                  executeAbAv1.Output + "\n" +
-                                  "--------------------------------------------------------------------");
+                args.Logger?.WLog("\n------------------------------------------ ab-av1 output ------------------------------------------\n" +
+                                  executeAbAv1.Output +
+                                  "\n---------------------------------------------------------------------------------------------------");
                 loggedOutput = true;
                 returnValue.Message =
                     "Failed to execute ab-av1: " + executeAbAv1.ExitCode;
@@ -523,9 +523,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         if (loggedOutput == false)
         {
-            args.Logger?.ILog("--------------------------- ab-av1 output --------------------------\n" +
-                              executeAbAv1.Output + "\n" +
-                              "--------------------------------------------------------------------");
+            args.Logger?.ILog("\n------------------------------------------ ab-av1 output ------------------------------------------\n" +
+                              executeAbAv1.Output +
+                              "\n---------------------------------------------------------------------------------------------------");
         }
 
         args.Logger?.Table(returnValue.Data, "CRF Search Results", new[] { "Crf", "Score", "Size" });
