@@ -1,3 +1,5 @@
+using FileFlows.VideoNodes.FfmpegBuilderNodes.Models;
+
 namespace FileFlows.VideoNodes.Helpers;
 
 using System;
@@ -90,34 +92,353 @@ public class VmafCrfOptimizer
         return outputFiles;
     }
 
+
+    private string GetCrfParameter(string encoder)
+    {
+        if (encoder.Contains("qsv"))
+            return "-global_quality";
+        if (encoder.Contains("nvenc"))
+            return "-cq";
+        if (encoder.Contains("vaapi"))
+            return "-q";
+        if (encoder.Contains("vulkan"))
+            return "-qp";
+        return "-crf";
+    }
+
+    public (float bestCrf, VmafResult bestResult, bool shouldReencode) FindBestCrf(
+        string encoder,
+        string pixelFormat,
+        string preset,
+        float minVmaf = 93,
+        float crfStart = 10,
+        float crfEnd = 24,
+        float crfStep = 0.5f,
+        int numberOfChunks = 5,
+        int chunkSeconds = 20,
+        int maxIterations = 5)
+    {
+        var chunks = ExtractChunks(TimeSpan.FromSeconds(chunkSeconds), numberOfChunks);
+        if (chunks.Count == 0)
+            throw new Exception("No chunks extracted.");
+
+        float low = crfStart;
+        float high = crfEnd;
+
+        VmafResult best = null;
+        float bestCrf = -1;
+
+        // First test the highest CRF for quick accept
+        _logger?.ILog($"Testing highest CRF first: {high}");
+        var topResult = TryCrf(chunks, encoder, pixelFormat, preset, high);
+        
+        if (topResult == null)
+        {
+            _logger?.ELog($"❌ Highest CRF {high} failed to encode or evaluate — cannot continue.");
+            return (-1, null, false); // Indicates failure
+        }
+
+        if (topResult.Vmaf >= minVmaf)
+        {
+            _logger?.ILog($"✅ Highest CRF {high} passed with VMAF {topResult.Vmaf:F2}, using this.");
+            return (high, topResult, topResult.SizePercent < 100f);
+        }
+
+        _logger?.ILog($"Highest CRF {high} failed, searching lower.");
+        high -= crfStep;
+
+        int iterations = 0;
+        while (low <= high && iterations < maxIterations)
+        {
+            float midRaw = (low + high) / 2;
+            float mid = RoundToStep(midRaw, crfStep);
+
+            _logger?.ILog($"\n🔍 Testing CRF {mid} (iteration {iterations + 1})...");
+
+            var result = TryCrf(chunks, encoder, pixelFormat, preset, mid);
+
+            if (result == null)
+            {
+                _logger?.ILog($"❌ CRF {mid} failed to encode.");
+                high = mid - crfStep;
+            }
+            else if (result.Vmaf >= minVmaf)
+            {
+                _logger?.ILog($"✅ CRF {mid} passed. Size: {result.SizePercent:F2}%, VMAF: {result.Vmaf:F2}");
+                bestCrf = mid;
+                best = result;
+                low = mid + crfStep; // try more compression
+            }
+            else
+            {
+                _logger?.ILog($"⚠️ CRF {mid} too lossy (VMAF {result.Vmaf:F2} < {minVmaf}).");
+                high = mid - crfStep; // try better quality
+            }
+
+            iterations++;
+        }
+
+        if (best != null)
+        {
+            _logger?.ILog($"🏁 Best CRF: {bestCrf} with size {best.SizePercent:0.##}% and VMAF {best.Vmaf:0.##}");
+        }
+        else
+        {
+            _logger?.WLog("❌ No CRF produced acceptable results.");
+        }
+
+        bool shouldReencode = best != null && best.SizePercent < 100f;
+        return (bestCrf, best, shouldReencode);
+    }
+
+
+
+    private string GetPixelFormat(FfmpegVideoStream videoStream, string encoder, out List<string> extraFilters)
+    {
+        extraFilters = new List<string>();
+
+        string pixelFormat = encoder.Contains("qsv") ? "nv12" : "yuv420p";
+
+        if (videoStream.Stream.Is10Bit)
+        {
+            pixelFormat = "yuv420p10le";
+
+            if (encoder.Contains("hevc", StringComparison.InvariantCultureIgnoreCase))
+            {
+                extraFilters.Add("-pix_fmt:v:0");
+                extraFilters.Add("p010le");
+                extraFilters.Add("-profile:v:0");
+                extraFilters.Add("main10");
+            }
+        }
+
+        return pixelFormat;
+    }
+
+    /// <summary>
+    /// Optimizes the encoding parameters of the video stream using VMAF to find the best CRF value
+    /// for a given encoder and preset. If no acceptable CRF is found, encoding can be forced using the highest CRF.
+    /// </summary>
+    /// <param name="stream">The video stream to optimize.</param>
+    /// <param name="encoder">The encoder name (e.g., hevc_qsv, h264_nvenc).</param>
+    /// <param name="preset">The encoding speed preset (e.g., slow, fast).</param>
+    /// <param name="forceEncoding">If true, forces encoding even if minimum VMAF is not met.</param>
+    /// <param name="minVmaf">The minimum acceptable VMAF score.</param>
+    /// <param name="crfStart">The starting CRF value for the search.</param>
+    /// <param name="crfEnd">The ending CRF value for the search.</param>
+    /// <param name="crfStep">The CRF step size used during binary search.</param>
+    /// <param name="numberOfChunks">Number of chunks to sample from the video for VMAF analysis.</param>
+    /// <param name="chunkSeconds">Duration in seconds of each chunk.</param>
+    /// <param name="maxIterations">Maximum number of iterations in the binary search.</param>
+    /// <returns>True if the stream was modified with optimized settings; otherwise, false.</returns>
+    public bool Optimize(FfmpegVideoStream stream, string encoder, string preset,
+        bool forceEncoding = false,
+        float minVmaf = 93,
+        float crfStart = 10,
+        float crfEnd = 24,
+        float crfStep = 0.5f,
+        int numberOfChunks = 5,
+        int chunkSeconds = 20,
+        int maxIterations = 5)
+    {
+        string pixelFormat = GetPixelFormatAndUpdateStream(stream, encoder);
+
+        var (bestCrf, result, shouldReencode) = FindBestCrf(
+            encoder, pixelFormat, preset,
+            minVmaf, crfStart, crfEnd, crfStep,
+            numberOfChunks, chunkSeconds, maxIterations
+        );
+
+        if (bestCrf > 0 && result != null)
+        {
+            // ✅ Found a CRF that meets quality threshold
+            int quality = (int)Math.Round(bestCrf);
+            var parameters = GetEncodingParameters(stream, encoder, preset, quality);
+            stream.EncodingParameters.Clear();
+            stream.EncodingParameters.AddRange(parameters);
+            return true;
+        }
+
+        if (forceEncoding)
+        {
+            _logger?.WLog("⚠️ Forcing re-encode using highest CRF fallback (quality threshold not met).");
+
+            int fallbackQuality = (int)Math.Round(crfEnd);
+            var parameters = GetEncodingParameters(stream, encoder, preset, fallbackQuality);
+            stream.EncodingParameters.Clear();
+            stream.EncodingParameters.AddRange(parameters);
+            return true;
+        }
+
+        // 🚫 No encoding done
+        return false;
+    }
+
+    /// <summary>
+    /// Determines the pixel format and applies any necessary pix_fmt/profile filters to the stream.
+    /// </summary>
+    /// <param name="stream">The video stream being encoded.</param>
+    /// <param name="encoder">The encoder being used.</param>
+    /// <returns>The pixel format to use.</returns>
+    private string GetPixelFormatAndUpdateStream(FfmpegVideoStream stream, string encoder)
+    {
+        var pixelFormat = encoder.Contains("qsv") ? "nv12" : "yuv420p";
+
+        if (stream.Stream.Is10Bit)
+        {
+            pixelFormat = "yuv420p10le";
+
+            if (encoder.Contains("hevc", StringComparison.InvariantCultureIgnoreCase))
+            {
+                stream.Filter.Add("-pix_fmt:v:0");
+                stream.Filter.Add("p010le");
+                stream.Filter.Add("-profile:v:0");
+                stream.Filter.Add("main10");
+            }
+        }
+
+        return pixelFormat;
+    }
+
+    /// <summary>
+    /// Generates the appropriate encoding parameters for the specified encoder, preset, and CRF/quality value.
+    /// </summary>
+    /// <param name="stream">The video stream containing metadata like frame rate.</param>
+    /// <param name="encoder">The encoder string (e.g., hevc_qsv, h264_nvenc).</param>
+    /// <param name="preset">The encoder preset string.</param>
+    /// <param name="quality">The CRF/quantizer quality value to use.</param>
+    /// <returns>A list of encoding parameters suitable for the selected encoder.</returns>
+    private List<string> GetEncodingParameters(FfmpegVideoStream stream, string encoder, string preset, int quality)
+    {
+        var fps = stream.Stream.FramesPerSecond;
+        int gop = (int)Math.Round(fps * 5);
+        string speed = preset ?? "slow";
+
+        var list = new List<string>();
+
+        if (encoder.Contains("qsv", StringComparison.InvariantCultureIgnoreCase))
+        {
+            list.Add(encoder);
+            if (encoder.Contains("hevc"))
+                list.AddRange(["-load_plugin", "hevc_hw"]);
+
+            list.AddRange(new[]
+            {
+                "-global_quality", quality.ToString(),
+                "-preset", speed,
+                "-look_ahead", "1",
+                "-look_ahead_depth", "40",
+                "-g", gop.ToString(CultureInfo.InvariantCulture)
+            });
+        }
+        else if (encoder.Contains("nvenc", StringComparison.InvariantCultureIgnoreCase))
+        {
+            list.Add(encoder);
+            list.AddRange(new[]
+            {
+                "-cq", quality.ToString(),
+                "-preset", speed,
+                "-rc", "vbr",
+                "-g", gop.ToString(CultureInfo.InvariantCulture)
+            });
+        }
+        else if (encoder.Contains("vaapi", StringComparison.InvariantCultureIgnoreCase))
+        {
+            list.Add(encoder);
+            list.AddRange(new[]
+            {
+                "-q", quality.ToString(),
+                "-preset", speed,
+                "-g", gop.ToString(CultureInfo.InvariantCulture)
+            });
+        }
+        else if (encoder.Contains("amf", StringComparison.InvariantCultureIgnoreCase))
+        {
+            list.Add(encoder);
+            list.AddRange(new[]
+            {
+                "-cq", quality.ToString(),
+                "-preset", speed
+            });
+        }
+        else if (encoder.Contains("vulkan", StringComparison.InvariantCultureIgnoreCase))
+        {
+            list.Add(encoder);
+            list.AddRange(new[]
+            {
+                "-qp", quality.ToString(),
+                "-preset", speed
+            });
+        }
+        else if (encoder.Contains("aom", StringComparison.InvariantCultureIgnoreCase) ||
+                 encoder.Contains("libaom", StringComparison.InvariantCultureIgnoreCase))
+        {
+            list.Add(encoder);
+            list.AddRange(new[]
+            {
+                "-crf", quality.ToString(),
+                "-b:v", "0",
+                "-preset", speed
+            });
+        }
+        else
+        {
+            // CPU encoders (libx264, libx265, etc.)
+            list.Add(encoder);
+            list.AddRange(new[]
+            {
+                "-crf", quality.ToString(),
+                "-preset", speed
+            });
+        }
+
+        return list;
+    }
+
+    private float RoundToStep(float value, float step)
+    {
+        return (float)(Math.Round(value / step) * step);
+    }
+
+    private VmafResult TryCrf(List<string> chunks, string encoder, string pixelFormat, string preset, float crf)
+    {
+        var results = new List<VmafResult>();
+
+        foreach (var chunk in chunks)
+        {
+            var r = ComputeVmaf(chunk, encoder, pixelFormat, crf, preset);
+            if (!string.IsNullOrWhiteSpace(r.Error))
+            {
+                var reason = !string.IsNullOrWhiteSpace(r.Error) ? r.Error : $"VMAF too low ({r.Vmaf:0.##})";
+                _logger?.WLog($"⚠️ CRF {crf} failed on chunk ({reason})");
+                return null;
+            }
+
+            results.Add(r);
+        }
+
+        var avgSize = results.Average(r => r.SizePercent);
+        var avgVmaf = results.Average(r => r.Vmaf);
+
+        return new VmafResult { SizePercent = avgSize, Vmaf = avgVmaf };
+    }
+
+// Updated ComputeVmaf with ffmpeg speed improvements
     public VmafResult ComputeVmaf(string original, string encoder, string pixelFormat, float crf, string preset)
     {
-        var encoded = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(original) + "_encoded.mp4");
-        var vmafLog = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(original) + "_vmaf.json");
-
+        var encoded = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(original) + $"_encoded_crf{crf}.mp4");
         var result = new VmafResult();
 
         try
         {
-            string crfArgument = GetCrfParameter(encoder);
             ExecuteProcess(new()
             {
                 LogCommand = true,
                 Command = _ffmpeg,
-                ArgumentList =
-                [
-                    "-hide_banner", "-y",
-                    "-i", original,
-                    "-c:v", encoder,
-                    crfArgument, crf.ToString(CultureInfo.InvariantCulture),
-                    "-pix_fmt", pixelFormat,
-                    "-preset", preset,
-                    encoded
-                ]
+                ArgumentList = GetArguments(original, encoded, encoder, crf, pixelFormat, preset)
             });
-            
-            
-            string fpsStr = ((int)Math.Round(_fps)).ToString(); // or keep full precision if you want
+
+            string fpsStr = ((int)Math.Round(_fps)).ToString();
 
             string lavfi =
                 $"[0:v]fps={fpsStr},scale=1920:1080:flags=bicubic,setpts=PTS-STARTPTS[dist];" +
@@ -137,7 +458,6 @@ public class VmafCrfOptimizer
                 ]
             });
 
-            // Parse VMAF score from output (e.g. "VMAF score: 57.955239")
             var match = Regex.Match(output, @"VMAF score:\s*([0-9.]+)");
             if (match.Success && float.TryParse(match.Groups[1].Value, out float vmaf))
             {
@@ -162,98 +482,46 @@ public class VmafCrfOptimizer
         return result;
     }
 
-    private string GetCrfParameter(string encoder)
+    private List<string> GetArguments(string inputFile, string outputFile, string encoder, float crf,
+        string pixelFormat, string preset)
     {
-        if (encoder.Contains("qsv"))
-            return "-global_quality";
-        if (encoder.Contains("nvenc"))
-            return "-cq";
+        List<string> args;
+
         if (encoder.Contains("vaapi"))
-            return "-q";
-        if (encoder.Contains("vulkan"))
-            return "-qp";
-        return "-crf";
-    }
-
-    public (float bestCrf, VmafResult bestResult, bool shouldReencode) FindBestCrf(
-        string encoder,
-        string pixelFormat,
-        string preset,
-        float minVmaf = 93,
-        float crfStart = 10,
-        float crfEnd = 24,
-        int crfStep = 1,
-        int numberOfChunks = 6,
-        int chunkSeconds = 30)
-    {
-        var chunks = ExtractChunks(TimeSpan.FromSeconds(chunkSeconds), numberOfChunks);
-        float bestCrf = -1;
-        VmafResult best = null;
-
-        for (float crf = crfStart; crf <= crfEnd; crf += crfStep)
         {
-            _logger.ILog($"\n🔍 Testing CRF {crf}...");
-
-            var results = new List<VmafResult>();
-            bool vmafTooLow = false;
-
-            foreach (var chunk in chunks)
+            args = new List<string>
             {
-                var r = ComputeVmaf(chunk, encoder, pixelFormat, crf, preset);
-                if (!string.IsNullOrWhiteSpace(r.Error) || r.Vmaf < minVmaf)
-                {
-                    var reason = !string.IsNullOrWhiteSpace(r.Error)
-                        ? r.Error
-                        : $"VMAF too low ({r.Vmaf:0.##})";
-                    _logger?.WLog($"⚠️ CRF {crf} failed on chunk ({reason})");
-
-                    vmafTooLow = true;
-                    break;
-                }
-
-                results.Add(r);
-            }
-
-            if (vmafTooLow)
-            {
-                // All higher CRFs will be worse quality — stop checking
-                // break;
-            }
-
-            if (results.Count == chunks.Count)
-            {
-                var avgSize = results.Average(r => r.SizePercent);
-                var avgVmaf = results.Average(r => r.Vmaf);
-
-                _logger.ILog($"✅ CRF {crf} passed. Avg VMAF: {avgVmaf:F2}, Avg Size: {avgSize:F2}%");
-
-                if (best == null || avgSize < best.SizePercent)
-                {
-                    bestCrf = crf;
-                    best = new VmafResult { Vmaf = avgVmaf, SizePercent = avgSize };
-                }
-            }
-        }
-
-
-        // Get original file size to determine if re-encoding makes sense
-        var shouldReencode = best != null && (best.SizePercent < 100f);
-        
-        if (best != null)
-        {
-            _logger.ILog($"🏁 Best CRF: {bestCrf} with {best.SizePercent:0.##}% size and {best.Vmaf:0.##} VMAF");
-            if (!shouldReencode)
-                _logger?.ILog("🚫 Best CRF result is larger than original — skipping re-encode.");
+                "-hide_banner", "-y",
+                "-hwaccel", "vaapi",
+                "-vaapi_device", "/dev/dri/renderD128",
+                "-i", inputFile,
+                "-vf", "format=nv12,hwupload",
+                "-c:v", encoder,
+                GetCrfParameter(encoder), crf.ToString(CultureInfo.InvariantCulture),
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                outputFile
+            };
         }
         else
         {
-            _logger.WLog("❌ No CRF setting produced acceptable results.");
+            args = new List<string>
+            {
+                "-hide_banner", "-y",
+                "-i", inputFile,
+                "-c:v", encoder,
+                GetCrfParameter(encoder), crf.ToString(CultureInfo.InvariantCulture),
+                "-pix_fmt", pixelFormat,
+                "-preset", preset,
+                "-threads", "0",
+                "-movflags", "+faststart",
+                "-c:a", "copy",
+                outputFile
+            };
         }
-        
 
-        return (bestCrf, best, shouldReencode);
+        return args;
     }
-
 
     private string ExecuteProcess(ProcessParameters p)
     {
@@ -288,6 +556,7 @@ public class VmafCrfOptimizer
         public string Command { get; set; }
         public List<string> ArgumentList { get; set; } = new();
         public bool ThrowOnError { get; set; } = true;
+
         /// <summary>
         /// If true, logs the command before executing it.
         /// </summary>

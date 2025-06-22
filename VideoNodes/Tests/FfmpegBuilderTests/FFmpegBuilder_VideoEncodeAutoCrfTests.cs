@@ -42,7 +42,11 @@ public class FFmpegBuilder_VideoEncodeAutoCrfTests: VideoTestBase
 
         var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeAutoCrfCustom()
         {
-            Codec = "hevc"
+            Codec = "hevc",
+            MinVmaf = 96,
+            Mode = FfmpegBuilderVideoEncodeAutoCrfCustom.VmafMode.Custom,
+            Samples = 2,
+            SampleLengthSeconds = 10
         };
 
         ffmpegCrfEncode.PreExecute(args);

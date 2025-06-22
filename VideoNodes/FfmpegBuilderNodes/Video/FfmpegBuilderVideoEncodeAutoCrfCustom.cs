@@ -27,20 +27,54 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
     [Select(nameof(CodecOptions), 1)]
     [DefaultValue("hevc")]
     public string Codec { get; set; }
+    
+    /// <summary>
+    /// Gets or sets if CPU should be used for the encoding
+    /// </summary>
+    [Boolean(2)]
+    public bool UseCpu { get; set; }
+
+    /// <summary>
+    /// Gets or sets the mode to use for determing the VMAF
+    /// </summary>
+    [Select(nameof(VmafOptions), 3)]
+    [DefaultValue(VmafMode.Default)] 
+    public VmafMode Mode { get; set; } = VmafMode.Default;
+
+    /// <summary>
+    /// Gets or sets the minimum VMAF score
+    /// </summary>
+    [NumberFloat(4)]
+    [DefaultValue(93f)]
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
+    public float MinVmaf { get; set; } = 93f;
 
     /// <summary>
     /// The maximum bitrate allowed for encoding, in megabits per second (Mbps).
     /// Defaults to 11.5.
     /// </summary>
-    [NumberFloat(2)]
+    [NumberFloat(5)]
     [DefaultValue(11.5f)]
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float MaxBitrate { get; set; } = 11.5f;
-    
+
     /// <summary>
-    /// Gets or sets if CPU should be used for the encoding
+    /// Gets or sets the number of samples to take 
     /// </summary>
-    [Boolean(5)]
-    public bool UseCpu { get; set; }
+    [NumberInt(6)]
+    [DefaultValue(3)]
+    [Range(1, 10)]
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
+    public int Samples { get; set; } = 3;
+
+    /// <summary>
+    /// Gets or sets the length of a sample to take in seconds 
+    /// </summary>
+    [NumberInt(7)]
+    [DefaultValue(20)]
+    [Range(1, 60)]
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
+    public int SampleLengthSeconds { get; set; } = 20;
 
     /// <summary>
     /// Gets the list of available codec options for encoding.
@@ -51,6 +85,16 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         new() { Label = "H.264", Value = "h264" },
         new() { Label = "HEVC", Value = "hevc" },
         new() { Label = "AV1", Value = "av1" }
+    };
+    
+    /// <summary>
+    /// Gets a list of available VMAF options for encoding
+    /// </summary>
+    private static List<ListOption> VmafOptions = new ()
+    {
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Default)}", Value = VmafMode.Default },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Deep)}", Value = VmafMode.Deep },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Custom)}", Value = VmafMode.Custom },
     };
 
     private string ffmpegBtbn;
@@ -68,6 +112,7 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         string error = string.Empty;
 
         Codec = Codec?.EmptyAsNull() ?? "hevc";
+        
 
         string currentCodec = video.Stream.Codec?.ToLowerInvariant() ?? string.Empty;
 
@@ -81,7 +126,21 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         if (videoBitRate <= 0)
             return args.Fail("Unable to determine video bitrate");
 
-        var targetBitRate = MaxBitrate * 1024 * 1024;
+        float maxBitrate = Mode is VmafMode.Custom ? MaxBitrate : 11.5f;
+        var targetBitRate = maxBitrate * 1024 * 1024;
+        float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 94f;
+        int sampleLengthSeconds = Mode switch
+        {
+            VmafMode.Default => 10,
+            VmafMode.Deep => 20,
+            _ => SampleLengthSeconds > 2 ? SampleLengthSeconds : 10
+        };
+        int samples = Mode switch
+        {
+            VmafMode.Default => 3,
+            VmafMode.Deep => 5,
+            _ => Samples > 1 ? SampleLengthSeconds : 3
+        };
 
         // Video Description
         var videoDescription = $"{GeneralHelper.HumanizeBitrate(videoBitRate)} {Codec}";
@@ -111,13 +170,9 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         if (videoBitRate > targetBitRate)
         {
             args.Logger?.WLog("Unacceptable bitrate");
-            args.Logger?.WLog($"Bitrate is {GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than {MaxBitrate} MBps");
+            args.Logger?.WLog($"Bitrate is {GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than {MaxBitrate} Mbps");
             args.Logger?.ILog("Will fallback to bitrate encoding");
             forceEncode = true;
-        }
-        else
-        {
-            targetBitRate = videoBitRate;
         }
 
         // The bitrate is good so we check if the codec is already hevc
@@ -128,62 +183,16 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         }
 
         string encoder = GetEncoder(args);
-        List<string> command = [encoder, "-preset", preset];
-        var pixelFormat = GetPixelFormat(video, encoder, command);
 
         var optimizer = new VmafCrfOptimizer(args, FFMPEG, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
-        
-        var result = optimizer.FindBestCrf(encoder, pixelFormat, preset,
-            crfStart:10, crfEnd: 14, numberOfChunks: 2, chunkSeconds:30);
-        
 
-        if (result.shouldReencode)
-        {
-            var crf_arg = GetCrfArg(encoder);
-            video.EncodingParameters.Clear();
-            video.EncodingParameters.AddRange(command);
-            video.EncodingParameters.AddRange([$"{crf_arg}:v", result.bestCrf.ToString(CultureInfo.InvariantCulture)]);
-            return 1;
-        }
-        
-        if(result.shouldReencode == false && forceEncode == false)
-        {
-            args.Logger?.ILog("Falling back to copy as codec and bitrate are acceptable");
-            return 2;
-        }
-        
-        video.EncodingParameters.Clear();
-        video.EncodingParameters.AddRange(command);
-        
-        var t = targetBitRate / 1024.00 / 1024.00;
+        var optimized = optimizer.Optimize(video, encoder, preset,
+            minVmaf: minVmaf,
+            numberOfChunks: samples,
+            chunkSeconds: sampleLengthSeconds,
+            forceEncoding: forceEncode);
 
-        video.AdditionalParameters.AddRange([
-            "-b:v:{index}", $"{t:F2}M",
-            "-minrate", $"{(t * 0.75):F2}M",
-            "-maxrate", $"{(t * 1.25):F2}M",
-            "-bufsize", $"{Math.Round(t)}M"
-        ]);
-        args.Logger?.ILog(
-            $"Falling back to bitrate encoding as video is unacceptable {GeneralHelper.HumanizeBitrate(targetBitRate)}");
-        args.RecordAdditionalInfo("Score", "Not found", 1000, null);
-        args.RecordAdditionalInfo("CRF", GeneralHelper.HumanizeBitrate(targetBitRate), 1000, null);
-
-        // Falling back bitrate encode as we could not find a suitable CRF
-        return 1;
-    }
-
-    private string GetPixelFormat(FfmpegVideoStream videoStream, string encoder, List<string> command)
-    {
-        var videoPixelFormat = encoder.Contains("qsv") ? "nv12" : "yuv420p";
-
-        if (videoStream.Stream.Is10Bit)
-        {
-            videoPixelFormat = "yuv420p10le";
-            if (encoder.Contains("hevc", StringComparison.InvariantCultureIgnoreCase))
-                command.AddRange(["-pix_fmt:v:0", "p010le", "-profile:v:0", "main10"]);
-        }
-
-        return videoPixelFormat;
+        return optimized ? 1 : 2;
     }
 
     /// <summary>
@@ -197,6 +206,22 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
             args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nonvidia" && x.Value as bool? == true);
         bool noQsv = UseCpu ||
                      args.Variables.Any(x => x.Key?.ToLowerInvariant() == "noqsv" && x.Value as bool? == true);
+        bool noVaapi =
+            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "novaapi" && x.Value as bool? == true);
+        bool noAmf =
+            args.Variables.Any(x =>
+                (x.Key?.ToLowerInvariant() == "noamf" || x.Key?.ToLowerInvariant() == "noamd") &&
+                x.Value as bool? == true);
+        bool noVideoToolbox =
+            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "novideotoolbox" && x.Value as bool? == true);
+        bool noVulkan =
+            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "novulkan" && x.Value as bool? == true);
+        bool noDxva2 = OperatingSystem.IsWindows() == false || 
+                       args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nodxva2" && x.Value as bool? == true);
+        bool noD3d11va = OperatingSystem.IsWindows() == false || 
+                         args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nod3d11va" && x.Value as bool? == true);
+        bool noOpencl =
+            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "noopencl" && x.Value as bool? == true);
 
         switch (Codec)
         {
@@ -206,6 +231,13 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
                     return "hevc_qsv";
                 if (noNvidia == false && CanUseHardwareEncoding.CanProcess_Nvidia_Hevc(args))
                     return "hevc_nvenc";
+                if (noAmf == false && CanUseHardwareEncoding.CanProcess_Amd_Hevc(args))
+                    return "hevc_amf";
+                if (noVaapi == false && CanUseHardwareEncoding.CanProcess_Vulkan_Hevc(args))
+                    return "hevc_vulkan";
+                if (noVaapi == false && CanUseHardwareEncoding.CanProcess_Vaapi_Hevc(args))
+                    return "hevc_vaapi";
+                
                 return "libx265";
             }
             case "h264":
@@ -214,6 +246,10 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
                     return "h264_qsv";
                 if (noNvidia == false && CanUseHardwareEncoding.CanProcess_Nvidia_H264(args))
                     return "h264_nvenc";
+                if (noAmf == false && CanUseHardwareEncoding.CanProcess_Amd_H264(args))
+                    return "h264_amf";
+                if (noVaapi == false && CanUseHardwareEncoding.CanProcess_Vaapi_H264(args))
+                    return "h264_vaapi";
                 return "libx264";
             }
             case "av1":
@@ -228,22 +264,11 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
 
         return Codec.ToLower();
     }
-    
-    /// <summary>
-    /// Gets the appropriate CRF argument name for a given codec.
-    /// </summary>
-    /// <param name="codec">The codec name (e.g., "h264_nvenc", "hevc_qsv").</param>
-    /// <returns>
-    /// The command-line argument to specify CRF or quality level for the codec.
-    /// Examples: "-cq" for nvenc, "-q" for vaapi, "-global_quality" for qsv, or "-crf" as default.
-    /// </returns>
-    private static string GetCrfArg(string codec)
-    {
-        codec = codec.ToLowerInvariant();
-        if (codec.Contains("nvenc")) return "-cq";
-        if (codec.Contains("vaapi")) return "-q";
-        if (codec.Contains("qsv")) return "-global_quality";
-        return "-crf";
-    }
 
+    public enum VmafMode
+    {
+        Default = 0,
+        Deep = 1, // dont like this name
+        Custom = 2
+    }
 }

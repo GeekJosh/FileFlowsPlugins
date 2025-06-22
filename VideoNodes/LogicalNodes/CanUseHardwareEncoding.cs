@@ -157,6 +157,13 @@ public class CanUseHardwareEncoding:Node
     internal static bool CanProcess_Amd_Hevc(NodeParameters args) => CanProcess(args, "hevc_amf");
 
     /// <summary>
+    /// Checks if this flow runner can use Vulkan HEVC encoder
+    /// </summary>
+    /// <param name="args">the node parameters</param>
+    /// <returns>true if can use it, otherwise false</returns>
+    internal static bool CanProcess_Vulkan_Hevc(NodeParameters args) => CanProcess(args, "hevc_vulkan");
+    
+    /// <summary>
     /// Checks if this flow runner can use AND H.264 encoder
     /// </summary>
     /// <param name="args">the node parameters</param>
