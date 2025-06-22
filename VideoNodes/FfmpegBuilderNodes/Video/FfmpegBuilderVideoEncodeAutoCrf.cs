@@ -422,6 +422,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             //"--sample-duration",
             //"5s",
         ];
+        executeArgs.Silent = true;
         
         // bool needsBtbnFfmpeg = executeArgs.ArgumentList.Any(arg =>
         //     arg.Contains("libvmaf", StringComparison.OrdinalIgnoreCase) ||
