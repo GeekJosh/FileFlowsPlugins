@@ -90,14 +90,12 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
     /// <summary>
     /// Gets a list of available VMAF options for encoding
     /// </summary>
-    private static List<ListOption> VmafOptions = new ()
+    public static List<ListOption> VmafOptions = new ()
     {
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Default)}", Value = VmafMode.Default },
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Deep)}", Value = VmafMode.Deep },
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Custom)}", Value = VmafMode.Custom },
     };
-
-    private string ffmpegBtbn;
 
     /// <inheritdoc />
     public override int Execute(NodeParameters args)
