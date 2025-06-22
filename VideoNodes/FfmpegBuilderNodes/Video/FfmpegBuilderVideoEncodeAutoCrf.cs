@@ -63,8 +63,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         new() { Label = "AV1", Value = "av1" }
     };
 
-    private string ffmpegBtbn, //ffpmegUranite,
-        ffmpegJellyfin;
+    private string ffmpegBtbn, ffmpegJellyfin;
 
     /// <inheritdoc />
     public override int Execute(NodeParameters args)
@@ -74,10 +73,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         string abAv1 = args.GetToolPath("ab-av1")?.EmptyAsNull("ab-av1");
         if (string.IsNullOrWhiteSpace(abAv1))
         {
-            var abAv1Result = FindTool("ab-av1", ["/opt/autocrf", "/usr/local/bin"]);
-            if (abAv1Result.Failed(out error))
-                return args.Fail(error);
-            abAv1 = abAv1Result.Value;
+            abAv1 =  "/app/common/autocrf/ab-av1";
+            if (File.Exists(abAv1) == false)
+                return args.Fail("Could not find ab-av1 file");
         }
 
         if (LoadFFmpegs(args) == -1)
@@ -236,22 +234,34 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
     private int LoadFFmpegs(NodeParameters args)
     {
-        var btbn = FindTool("ffmpeg", "/opt/ffmpeg-static/bin");
-        if (btbn.Failed(out var error))
+        var btbnResult = FindFFmpegVersion(args, "FFmpeg-Btbn", "/app/common/ffmpeg-static");
+        if (btbnResult.Failed(out var error))
             return args.Fail(error);
-        ffmpegBtbn = btbn.Value;
+        ffmpegBtbn = btbnResult.Value;
 
-        // var uraninte = FindTool("ffmpeg", "/opt/ffmpeg-uranite-static/bin");
-        // if (uraninte.Failed(out error))
-        //     return args.Fail(error);
-        // ffpmegUranite = uraninte.Value;
-
-        var jellyfin = FindTool("ffmpeg", "/usr/local/bin");
-        if (jellyfin.Failed(out error))
+        var jfResult = FindFFmpegVersion(args, "FFmpeg", "/usr/local/bin");
+        if (jfResult.Failed(out error))
             return args.Fail(error);
-        ffmpegJellyfin = jellyfin.Value;
+        ffmpegJellyfin = jfResult.Value;
 
         return 1;
+    }
+
+    private Result<string> FindFFmpegVersion(NodeParameters args, string variable, params string[] paths)
+    {
+        var tool = args.GetToolPath(variable)?.EmptyAsNull(variable);
+        if (string.IsNullOrWhiteSpace(tool) == false)
+            return tool;
+        
+        foreach (var path in paths)
+        {
+            string fullPath = Path.Combine(path, "ffmpeg");
+            if (File.Exists(fullPath))
+                return fullPath;
+        }
+
+        return Result<string>.Fail($"FFmpeg  {variable} not found in any provided paths: " + string.Join(", ", paths));
+        
     }
 
     private bool DolbyVisionFix(NodeParameters args, FfmpegVideoStream video)
@@ -358,28 +368,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (codec.Contains("vaapi")) return "-q";
         if (codec.Contains("qsv")) return "-global_quality";
         return "-crf";
-    }
-
-
-    /// <summary>
-    /// Attempts to find a tool executable by searching multiple directories.
-    /// </summary>
-    /// <param name="tool">The name of the tool executable (e.g., "ffmpeg").</param>
-    /// <param name="paths">An array of directory paths to search for the tool.</param>
-    /// <returns>
-    /// A <see cref="Result{T}"/> containing the full path to the tool if found;
-    /// otherwise, a failure result with an error message.
-    /// </returns>
-    private static Result<string> FindTool(string tool, params string[] paths)
-    {
-        foreach (var path in paths)
-        {
-            string fullPath = Path.Combine(path, tool);
-            if (File.Exists(fullPath))
-                return fullPath;
-        }
-
-        return Result<string>.Fail($"Tool {tool} not found in any provided paths: " + string.Join(", ", paths));
     }
 
     /// <summary>
