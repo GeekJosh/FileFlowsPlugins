@@ -67,7 +67,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         new() { Label = "AV1", Value = "av1" }
     };
 
-    private string ffmpegBtbn;
+    private string ffmpegBtbn, ffmpegJellyfin;
 
     /// <inheritdoc />
     public override int Execute(NodeParameters args)
@@ -93,6 +93,12 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (btbnResult.Failed(out error))
             return args.Fail(error);
         ffmpegBtbn = btbnResult.Value;
+        
+
+        var ffmpegJellyfinResult = FindFFmpegVersion(args, "FFmpeg", "/usr/local/bin");
+        if (ffmpegJellyfinResult.Failed(out error))
+            return args.Fail(error);
+        ffmpegJellyfin = ffmpegJellyfinResult.Value;
 
         Codec = Codec?.EmptyAsNull() ?? "hevc";
 
@@ -402,17 +408,8 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             //"--sample-duration", "5s",
         ];
         executeArgs.Silent = true;
-        
-        // bool needsBtbnFfmpeg = executeArgs.ArgumentList.Any(arg =>
-        //     arg.Contains("libvmaf", StringComparison.OrdinalIgnoreCase) ||
-        //     arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
-        //     targetCodec.Contains("libsvtav1", StringComparison.OrdinalIgnoreCase) ||
-        //     targetCodec.Contains("libaom-av1", StringComparison.OrdinalIgnoreCase)
-        // );
 
-        // Append both to the existing PATH
-        //string ffmpegPath = new FileInfo(needsBtbnFfmpeg ? ffmpegBtbn : ffmpegJellyfin).Directory!.FullName;
-        string ffmpegPath = new FileInfo(ffmpegBtbn).Directory!.FullName;
+        var ffmpegPath = CreateFFmpegWrapper(args);
         
         string? existingPath = Environment.GetEnvironmentVariable("PATH");
         string newPath = $"{ffmpegPath}{Path.PathSeparator}{existingPath}";
@@ -495,6 +492,35 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         }
 
         return returnValue;
+    }
+
+    private string CreateFFmpegWrapper(NodeParameters args)
+    {
+        string content =
+    $"""
+    #!/bin/bash
+
+    if [[ "\$@" =~ libvmaf|libsvtav1|libaom-av1 ]]; then
+        {ffmpegBtbn} "\$@"
+    else
+        {ffmpegJellyfin} "\$@"
+    fi
+
+    exit \$?
+    """;
+        var ffmpegPath = Path.Combine(args.TempPath, "ffmpeg");
+        Directory.CreateDirectory(ffmpegPath);
+        var ffmpeg = Path.Combine(ffmpegPath, "ffmpeg");
+        File.WriteAllText(ffmpeg, content);
+        
+        // Make the script executable
+        args.Process.ExecuteShellCommand(new()
+        {
+            Command = "chmod",
+            ArgumentList = ["+x", ffmpeg]
+        });
+
+        return ffmpegPath;
     }
 
     /// <summary>

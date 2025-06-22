@@ -102,6 +102,7 @@ public class VmafCrfOptimizer
 
         try
         {
+            string crfArgument = GetCrfParameter(encoder);
             ExecuteProcess(new()
             {
                 LogCommand = true,
@@ -111,10 +112,10 @@ public class VmafCrfOptimizer
                     "-hide_banner", "-y",
                     "-i", original,
                     "-c:v", encoder,
-                    "-crf", crf.ToString(CultureInfo.InvariantCulture),
+                    crfArgument, crf.ToString(CultureInfo.InvariantCulture),
                     "-pix_fmt", pixelFormat,
                     "-preset", preset,
-                    "-tune", "grain",
+                    // "-tune", "grain",
                     encoded
                 ]
             });
@@ -156,6 +157,19 @@ public class VmafCrfOptimizer
         }
 
         return result;
+    }
+
+    private string GetCrfParameter(string encoder)
+    {
+        if (encoder.Contains("qsv"))
+            return "-global_quality";
+        if (encoder.Contains("nvenc"))
+            return "-cq";
+        if (encoder.Contains("vaapi"))
+            return "-q";
+        if (encoder.Contains("vulkan"))
+            return "-qp";
+        return "-crf";
     }
 
     public (float bestCrf, VmafResult bestResult, bool shouldReencode) FindBestCrf(

@@ -37,7 +37,7 @@ public class FFmpegBuilder_VideoEncodeAutoCrfTests: VideoTestBase
     [TestMethod]
     public void CrfTest1()
     {
-        var file = "/home/john/Videos/unprocessed/large_tv.mkv";
+        var file = "/home/john/Videos/unprocessed/Big-Movie.mkv";
         InitVideo(file);//VideoMkv);
 
         var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeAutoCrfCustom()

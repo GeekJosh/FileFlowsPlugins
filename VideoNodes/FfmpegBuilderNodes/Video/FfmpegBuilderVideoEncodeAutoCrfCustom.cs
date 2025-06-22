@@ -140,7 +140,6 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         if (result.shouldReencode)
         {
             var crf_arg = GetCrfArg(encoder);
-            var best = result.bestResult;
             video.EncodingParameters.Clear();
             video.EncodingParameters.AddRange(command);
             video.EncodingParameters.AddRange([$"{crf_arg}:v", result.bestCrf.ToString(CultureInfo.InvariantCulture)]);
