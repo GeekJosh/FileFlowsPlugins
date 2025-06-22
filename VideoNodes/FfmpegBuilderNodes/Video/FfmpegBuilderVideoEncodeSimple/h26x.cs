@@ -78,7 +78,7 @@ public partial class FfmpegBuilderVideoEncodeSimple
     /// </summary>
     internal static string[] H26x_Amd(bool h265, int quality, int speed, out string[] bit10Filters)
     {
-        bit10Filters = ["-pix_fmt:v:{index}", "p010le", "-profile:v:{index}", "1"];
+        bit10Filters = ["-pix_fmt:v:{index}", "p010le", "-profile:v:{index}", "2"];
         return
         [
             h265 ? "hevc_amf" : "h264_amf",
