@@ -6,9 +6,9 @@ using FileFlows.VideoNodes.Helpers;
 namespace FileFlows.VideoNodes.FfmpegBuilderNodes;
 
 /// <summary>
-/// AutoCRF encoder using ab-av1's crf-search
+/// VMAF baed encoding
 /// </summary>
-public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
+public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
 {
     /// <inheritdoc />
     public override int Inputs => 1;
@@ -18,7 +18,7 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
 
     /// <inheritdoc />
     public override string HelpUrl =>
-        "https://fileflows.com/docs/plugins/video-nodes/ffmpeg-builder/video-encode-auto-crf";
+        "https://fileflows.com/docs/plugins/video-nodes/ffmpeg-builder/video-encode-vmaf";
 
     /// <summary>
     /// The codec to use for encoding. Options include "h264", "hevc", "av1", etc.
@@ -77,6 +77,20 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
     public int SampleLengthSeconds { get; set; } = 20;
 
     /// <summary>
+    /// Gets or sets the low value for the VMAF testing
+    /// </summary>
+    [NumberFloat(8)] 
+    [DefaultValue(15)] 
+    public float CrfLow { get; set; } = 15f;
+    
+    /// <summary>
+    /// Gets or sets the high value for the VMAF testing
+    /// </summary>
+    [NumberFloat(8)] 
+    [DefaultValue(25)] 
+    public float CrfHigh { get; set; } = 25f;
+
+    /// <summary>
     /// Gets the list of available codec options for encoding.
     /// Each option has a label and a corresponding codec value.
     /// </summary>
@@ -90,11 +104,11 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
     /// <summary>
     /// Gets a list of available VMAF options for encoding
     /// </summary>
-    public static List<ListOption> VmafOptions = new ()
+    public static List<ListOption> VmafOptions => new ()
     {
-        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Default)}", Value = VmafMode.Default },
-        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Deep)}", Value = VmafMode.Deep },
-        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeAutoCrfCustom)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Custom)}", Value = VmafMode.Custom },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Default)}", Value = VmafMode.Default },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Deep)}", Value = VmafMode.Deep },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Custom)}", Value = VmafMode.Custom },
     };
 
     /// <inheritdoc />
@@ -138,6 +152,18 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
             VmafMode.Default => 3,
             VmafMode.Deep => 5,
             _ => Samples > 1 ? SampleLengthSeconds : 3
+        };
+        float crfLow = Mode switch
+        {
+            VmafMode.Default => 15,
+            VmafMode.Deep => 15,
+            _ => CrfLow > 3 ? CrfLow : 15
+        };
+        float crfHigh = Mode switch
+        {
+            VmafMode.Default => 25,
+            VmafMode.Deep => 25,
+            _ => CrfHigh > crfLow ? CrfHigh : Math.Max(25, crfLow + 5)
         };
 
         // Video Description
@@ -186,6 +212,8 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
 
         var optimized = optimizer.Optimize(video, encoder, preset,
             minVmaf: minVmaf,
+            crfStart: crfLow,
+            crfEnd:  crfHigh,
             numberOfChunks: samples,
             chunkSeconds: sampleLengthSeconds,
             forceEncoding: forceEncode);

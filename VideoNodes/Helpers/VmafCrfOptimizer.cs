@@ -242,12 +242,36 @@ public class VmafCrfOptimizer
         int maxIterations = 5)
     {
         string pixelFormat = GetPixelFormatAndUpdateStream(stream, encoder);
-
+        
+        crfStart = RoundToNearestStep(crfStart, crfStep);
+        crfEnd = RoundToNearestStep(crfEnd, crfStep);
+        
+        _logger.ILog($@"[Optimize Settings]
+  Encoder        : {encoder}
+  Preset         : {preset}
+  Force Encoding : {forceEncoding}
+  Pixel Format   : {pixelFormat}
+  Min VMAF       : {minVmaf}
+  CRF Start      : {crfStart}
+  CRF End        : {crfEnd}
+  CRF Step       : {crfStep}
+  Chunks         : {numberOfChunks}
+  Chunk Seconds  : {chunkSeconds}
+  Max Iterations : {maxIterations}
+  Stream Info    : Codec={stream.Codec}, BitDepth={(stream.Stream.Is10Bit ? 10 : 8)}, Resolution={stream.Stream.Width}x{stream.Stream.Height}
+");
+        
         var (bestCrf, result, shouldReencode) = FindBestCrf(
             encoder, pixelFormat, preset,
             minVmaf, crfStart, crfEnd, crfStep,
             numberOfChunks, chunkSeconds, maxIterations
         );
+
+        if (shouldReencode == false && forceEncoding == false)
+        {
+            _logger?.ILog("Encoding will not produce a smaller file, skipping encoding");
+            return false;
+        }
 
         if (bestCrf > 0 && result != null)
         {
@@ -273,7 +297,21 @@ public class VmafCrfOptimizer
         // 🚫 No encoding done
         return false;
     }
-
+    
+    /// <summary>
+    /// Rounds the given value to the nearest multiple of the specified step size,
+    /// rounding midpoint values (e.g., 0.25 with step 0.5) down rather than up.
+    /// </summary>
+    /// <param name="value">The value to round.</param>
+    /// <param name="step">The step size to round to (e.g., 0.5).</param>
+    /// <returns>The value rounded to the nearest multiple of the step.</returns>
+    float RoundToNearestStep(float value, float step)
+    {
+        float exact = value / step;
+        float rounded = (float)Math.Floor(exact + 0.5f - 1e-6f); // bias halfway values down
+        return rounded * step;
+    }
+    
     /// <summary>
     /// Determines the pixel format and applies any necessary pix_fmt/profile filters to the stream.
     /// </summary>
