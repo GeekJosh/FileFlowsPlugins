@@ -22,14 +22,18 @@ public class VmafCrfOptimizer
     private readonly string _tempDir;
     private readonly string _inputFile;
     private readonly NodeParameters _nodeParameters;
+    private readonly float _fps;
+    private readonly TimeSpan _duration;
 
-    public VmafCrfOptimizer(NodeParameters args, string ffmpeg, string inputFile)
+    public VmafCrfOptimizer(NodeParameters args, string ffmpeg, string inputFile, float fps, TimeSpan duration)
     {
         _logger = args.Logger;
         _ffmpeg = ffmpeg;
         _inputFile = inputFile;
         _tempDir = args.TempPath;
         _nodeParameters = args;
+        _fps = fps;
+        _duration = duration;
     }
 
     public List<string> ExtractChunks(TimeSpan chunkDuration, int numberOfChunks)
@@ -37,31 +41,23 @@ public class VmafCrfOptimizer
         var outputFiles = new List<string>();
         Directory.CreateDirectory(_tempDir);
 
-        _logger?.ILog("📏 Probing video duration...");
-        var output = ExecuteProcess(new()
-        {
-            Command = _ffmpeg,
-            ArgumentList = ["-hide_banner", "-i", _inputFile],
-            ThrowOnError = false
-        });
 
-        var match = Regex.Match(output, @"Duration:\s*(\d{2}):(\d{2}):(\d{2})");
-        if (!match.Success)
+        // Calculate the usable time range (between 20% and 80%)
+        var startRange = _duration.TotalSeconds * 0.2;
+        var endRange = _duration.TotalSeconds * 0.8;
+        var usableRange = endRange - startRange;
+
+        if (usableRange < numberOfChunks * chunkDuration.TotalSeconds)
         {
-            _logger?.ELog("❌ Failed to get duration.");
+            _logger?.WLog("⚠️ Not enough space to place all chunks in the 20%-80% range.");
             return outputFiles;
         }
 
-        var duration = new TimeSpan(
-            int.Parse(match.Groups[1].Value),
-            int.Parse(match.Groups[2].Value),
-            int.Parse(match.Groups[3].Value));
-
-        var spacing = duration.TotalSeconds / (numberOfChunks + 1);
+        var spacing = usableRange / (numberOfChunks + 1);
 
         for (int i = 0; i < numberOfChunks; i++)
         {
-            var start = TimeSpan.FromSeconds(spacing * (i + 1));
+            var start = TimeSpan.FromSeconds(startRange + spacing * (i + 1));
             var outputFile = Path.Combine(_tempDir, $"chunk_{i + 1}.mp4");
 
             if (File.Exists(outputFile) && new FileInfo(outputFile).Length > 1000)
@@ -71,6 +67,7 @@ public class VmafCrfOptimizer
             }
 
             _logger?.ILog($"✂️ Extracting chunk {i + 1} at {start}");
+
             ExecuteProcess(new()
             {
                 Command = _ffmpeg,
@@ -80,8 +77,8 @@ public class VmafCrfOptimizer
                     "-ss", start.TotalSeconds.ToString(CultureInfo.InvariantCulture),
                     "-i", _inputFile,
                     "-t", chunkDuration.TotalSeconds.ToString(CultureInfo.InvariantCulture),
-                    "-map", "0:v:0", // Only map the first video stream
-                    "-c:v", "copy",  // Copy the video codec
+                    "-map", "0:v:0",
+                    "-c:v", "copy",
                     outputFile
                 ]
             });
@@ -115,10 +112,17 @@ public class VmafCrfOptimizer
                     crfArgument, crf.ToString(CultureInfo.InvariantCulture),
                     "-pix_fmt", pixelFormat,
                     "-preset", preset,
-                    // "-tune", "grain",
                     encoded
                 ]
             });
+            
+            
+            string fpsStr = ((int)Math.Round(_fps)).ToString(); // or keep full precision if you want
+
+            string lavfi =
+                $"[0:v]fps={fpsStr},scale=1920:1080:flags=bicubic,setpts=PTS-STARTPTS[dist];" +
+                $"[1:v]fps={fpsStr},scale=1920:1080:flags=bicubic,setpts=PTS-STARTPTS[ref];" +
+                "[dist][ref]libvmaf";
 
             var output = ExecuteProcess(new()
             {
@@ -128,8 +132,7 @@ public class VmafCrfOptimizer
                     "-hide_banner",
                     "-i", encoded,
                     "-i", original,
-                    "-lavfi",
-                    "[0:v]setpts=PTS-STARTPTS[dist];[1:v]setpts=PTS-STARTPTS[ref];[dist][ref]libvmaf",
+                    "-lavfi", lavfi,
                     "-f", "null", "-"
                 ]
             });

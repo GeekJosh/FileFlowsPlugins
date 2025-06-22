@@ -131,7 +131,7 @@ public class FfmpegBuilderVideoEncodeAutoCrfCustom : FfmpegBuilderNode
         List<string> command = [encoder, "-preset", preset];
         var pixelFormat = GetPixelFormat(video, encoder, command);
 
-        var optimizer = new VmafCrfOptimizer(args, FFMPEG, localFile);
+        var optimizer = new VmafCrfOptimizer(args, FFMPEG, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
         
         var result = optimizer.FindBestCrf(encoder, pixelFormat, preset,
             crfStart:10, crfEnd: 14, numberOfChunks: 2, chunkSeconds:30);
