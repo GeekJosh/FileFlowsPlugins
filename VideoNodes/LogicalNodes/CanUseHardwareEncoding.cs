@@ -312,9 +312,19 @@ public class CanUseHardwareEncoding:Node
         if (cmd.ExitCode != 0 || string.IsNullOrWhiteSpace(output) == false)
         {
             string asStr = string.Join(" ", arguments.Select(x => x.Contains(' ') ? "\"" + x + "\"" : x));
-            args.Logger?.WLog($"Cant process '{ffmpeg} {asStr}': {cmd.Output ?? ""}");
+            args.Logger?.ILog($"Cant process '{ffmpeg} {asStr}'");//: {cmd.Output ?? ""}");
             return false;
         }
+
+        int index = encodingParams.ToList().IndexOf("-c:v");
+        if (index > 0)
+            args.Logger?.ILog($"Can process '{encodingParams[index + 1]}'");
+        else
+        {
+            string asStr = string.Join(" ", arguments.Select(x => x.Contains(' ') ? "\"" + x + "\"" : x));
+            args.Logger?.WLog($"Can process '{ffmpeg} {asStr}'");
+        }
+
         return true;
     }
 }
