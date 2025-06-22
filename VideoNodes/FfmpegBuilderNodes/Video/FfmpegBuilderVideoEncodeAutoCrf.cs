@@ -73,9 +73,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         string abAv1 = args.GetToolPath("ab-av1")?.EmptyAsNull("ab-av1");
         if (string.IsNullOrWhiteSpace(abAv1))
         {
-            abAv1 =  "/app/common/autocrf/ab-av1";
+            abAv1 =  "/opt/autocrf/ab-av1";
             if (File.Exists(abAv1) == false)
-                abAv1 =  "/opt/autocrf/ab-av1";
+                abAv1 =  "/app/common/autocrf/ab-av1";
             if (File.Exists(abAv1) == false)
                 return args.Fail("Could not find ab-av1 file");
         }
@@ -468,11 +468,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
                 return;
 
 
-            line = line.Substring(line.IndexOf(" ", StringComparison.Ordinal) + 1);
+            line = line[(line.IndexOf(' ', StringComparison.Ordinal) + 1)..];
 
-            Match match;
-
-            match = Regex.Match(line, @"encoding sample (\d+)/(\d+).* crf (\d+)", RegexOptions.IgnoreCase);
+            var match = Regex.Match(line, @"encoding sample (\d+)/(\d+).* crf (\d+)", RegexOptions.IgnoreCase);
             if (match.Success)
             {
                 args.AdditionalInfoRecorder("Sampling", $"CRF {match.Groups[3].Value}", 1, null);
