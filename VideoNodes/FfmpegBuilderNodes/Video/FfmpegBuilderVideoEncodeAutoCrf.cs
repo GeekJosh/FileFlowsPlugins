@@ -497,17 +497,17 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     private string CreateFFmpegWrapper(NodeParameters args)
     {
         string content =
-    $"""
-    #!/bin/bash
+$"""
+#!/bin/bash
 
-    if [[ "\$@" =~ libvmaf|libsvtav1|libaom-av1 ]]; then
-        {ffmpegBtbn} "\$@"
-    else
-        {ffmpegJellyfin} "\$@"
-    fi
+# Route to AV1-capable ffmpeg if special codecs are used
+if [[ "$@" =~ libvmaf|libsvtav1|libaom-av1 ]]; then
+    exec "{ffmpegBtbn}" "$@"
+fi
 
-    exit \$?
-    """;
+# Otherwise use the default ffmpeg (avoid recursion)
+exec "{ffmpegJellyfin}" "$@"
+""";
         var ffmpegPath = Path.Combine(args.TempPath, "ffmpeg");
         Directory.CreateDirectory(ffmpegPath);
         var ffmpeg = Path.Combine(ffmpegPath, "ffmpeg");
