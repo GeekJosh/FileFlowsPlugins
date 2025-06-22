@@ -316,14 +316,7 @@ public class CanUseHardwareEncoding:Node
             return false;
         }
 
-        int index = encodingParams.ToList().IndexOf("-c:v");
-        if (index > 0)
-            args.Logger?.ILog($"Can process '{encodingParams[index + 1]}'");
-        else
-        {
-            string asStr = string.Join(" ", arguments.Select(x => x.Contains(' ') ? "\"" + x + "\"" : x));
-            args.Logger?.WLog($"Can process '{ffmpeg} {asStr}'");
-        }
+        args.Logger?.ILog($"Can process '{encodingParams[0]}'");
 
         return true;
     }
