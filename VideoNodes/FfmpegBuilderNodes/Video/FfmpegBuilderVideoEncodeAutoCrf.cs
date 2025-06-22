@@ -75,6 +75,8 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         {
             abAv1 =  "/app/common/autocrf/ab-av1";
             if (File.Exists(abAv1) == false)
+                abAv1 =  "/opt/autocrf/ab-av1";
+            if (File.Exists(abAv1) == false)
                 return args.Fail("Could not find ab-av1 file");
         }
 
@@ -234,7 +236,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
     private int LoadFFmpegs(NodeParameters args)
     {
-        var btbnResult = FindFFmpegVersion(args, "FFmpeg-Btbn", "/app/common/ffmpeg-static");
+        var btbnResult = FindFFmpegVersion(args, "FFmpeg-Btbn", "/app/common/ffmpeg-static", "/opt/ffmpeg-static/bin");
         if (btbnResult.Failed(out var error))
             return args.Fail(error);
         ffmpegBtbn = btbnResult.Value;
@@ -448,12 +450,12 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         );
 
         // Append both to the existing PATH
-        //string abAv1Path = new FileInfo(abAv1).Directory!.FullName;
+        string abAv1Path = new FileInfo(abAv1).Directory!.FullName;
         string ffmpegPath = new FileInfo(needsBtbnFfmpeg ? ffmpegBtbn : ffmpegJellyfin).Directory!.FullName;
         
         string? existingPath = Environment.GetEnvironmentVariable("PATH");
-        //string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
-        string newPath = $"{ffmpegPath}{Path.PathSeparator}{existingPath}";
+        string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
+        //string newPath = $"{ffmpegPath}{Path.PathSeparator}{existingPath}";
         executeArgs.EnvironmentalVariables["PATH"] = newPath;
         args.Logger?.ILog("New Path: " + newPath);
 
