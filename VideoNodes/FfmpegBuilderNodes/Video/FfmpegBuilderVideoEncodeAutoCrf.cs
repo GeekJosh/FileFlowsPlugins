@@ -397,7 +397,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         command.AddRange(["-g", (videoStream.Stream.FramesPerSecond * 10).ToString(CultureInfo.InvariantCulture)]);
 
         if (targetCodec.Contains("qsv", StringComparison.InvariantCultureIgnoreCase))
-            command.AddRange(["-look_ahead", "1", "-extbrc", "1", "-look_ahead_depth", "40"]);
+            command.AddRange(["-look_ahead", "1", "-extbrc", "1", "-look_ahead_depth", "16"]);
 
         var videoPixelFormat = "yuv420p";
 
