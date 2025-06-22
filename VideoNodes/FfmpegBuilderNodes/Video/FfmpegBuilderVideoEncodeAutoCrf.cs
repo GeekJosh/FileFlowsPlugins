@@ -41,7 +41,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     /// Defaults to false.
     /// </summary>
     [Boolean(3)]
-    [DefaultValue(false)]
     public bool FixDolby5 { get; set; }
 
     /// <summary>
@@ -49,8 +48,13 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     /// Defaults to false.
     /// </summary>
     [Boolean(4)]
-    [DefaultValue(false)]
     public bool ErrorOnFail { get; set; }
+    
+    /// <summary>
+    /// Gets or sets if CPU should be used for the encoding
+    /// </summary>
+    [Boolean(5)]
+    public bool UseCpu { get; set; }
 
     /// <summary>
     /// Gets the list of available codec options for encoding.
@@ -287,10 +291,10 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
     /// <returns>the encoder to use</returns>
     private string GetEncoder(NodeParameters args)
     {
-        bool noNvidia =
+        bool noNvidia = UseCpu || 
             args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nonvidia" && x.Value as bool? == true);
-        bool noQsv =
-            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "noqsv" && x.Value as bool? == true);
+        bool noQsv = UseCpu ||
+                     args.Variables.Any(x => x.Key?.ToLowerInvariant() == "noqsv" && x.Value as bool? == true);
 
         switch (Codec)
         {
