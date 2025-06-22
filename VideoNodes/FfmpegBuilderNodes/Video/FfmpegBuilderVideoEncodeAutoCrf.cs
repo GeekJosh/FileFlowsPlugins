@@ -63,29 +63,28 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         new() { Label = "AV1", Value = "av1" }
     };
 
-    private string ffmpegBtbn, ffmpegJellyfin;
+    private string ffmpegBtbn;
 
     /// <inheritdoc />
     public override int Execute(NodeParameters args)
     {
+        if (Model.VideoInfo.VideoStreams?.Any() != true)
+            return args.Fail("No video streams found.");
+        
         string error = string.Empty;
         // Checking dependencies
         string abAv1 = args.GetToolPath("ab-av1")?.EmptyAsNull("ab-av1");
         if (string.IsNullOrWhiteSpace(abAv1))
         {
-            abAv1 =  "/opt/autocrf/ab-av1";
-            if (File.Exists(abAv1) == false)
-                abAv1 =  "/app/common/autocrf/ab-av1";
+            abAv1 =  "/app/common/autocrf/ab-av1";
             if (File.Exists(abAv1) == false)
                 return args.Fail("Could not find ab-av1 file");
         }
 
-        if (LoadFFmpegs(args) == -1)
-            return -1;
-        
-        if (Model.VideoInfo.VideoStreams?.Any() != true)
-            return args.Fail("No video streams found.");
-
+        var btbnResult = FindFFmpegVersion(args, "FFmpeg-Btbn", "/app/common/ffmpeg-static", "/opt/ffmpeg-static/bin");
+        if (btbnResult.Failed(out error))
+            return args.Fail(error);
+        ffmpegBtbn = btbnResult.Value;
 
         Codec = Codec?.EmptyAsNull() ?? "hevc";
 
@@ -186,7 +185,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             video.EncodingParameters.Clear();
             video.EncodingParameters.AddRange(attempt.Command);
             video.EncodingParameters.AddRange([$"{crf_arg}:v", attempt.Winner.Crf]);
-            //args.Variables["ManualParameters"] = $"{attempt.Command} {crf_arg}:v {attempt.Winner.Crf}";
             args.Logger.ILog($"Attempt successful with {attempt.Winner.Size}% size, {attempt.Winner.Score}% VMAF");
             args.AdditionalInfoRecorder("Score", attempt.Winner.Score, 1000, null);
             args.AdditionalInfoRecorder("CRF", attempt.Winner.Crf, 1000, null);
@@ -207,8 +205,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             return 2;
         }
 
-        // setup bitrate encode
-        //args.Variables["ManualParameters"] = string.Join(" ", attempt.Command);
         
         video.EncodingParameters.Clear();
         video.EncodingParameters.AddRange(attempt.Command);
@@ -231,21 +227,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         args.AdditionalInfoRecorder("CRF", GeneralHelper.HumanizeBitrate(targetBitRate), 1000, null);
 
         // Falling back bitrate encode as we could not find a suitable CRF
-        return 1;
-    }
-
-    private int LoadFFmpegs(NodeParameters args)
-    {
-        var btbnResult = FindFFmpegVersion(args, "FFmpeg-Btbn", "/app/common/ffmpeg-static", "/opt/ffmpeg-static/bin");
-        if (btbnResult.Failed(out var error))
-            return args.Fail(error);
-        ffmpegBtbn = btbnResult.Value;
-
-        var jfResult = FindFFmpegVersion(args, "FFmpeg", "/usr/local/bin");
-        if (jfResult.Failed(out error))
-            return args.Fail(error);
-        ffmpegJellyfin = jfResult.Value;
-
         return 1;
     }
 
@@ -397,7 +378,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         command.AddRange(["-g", (videoStream.Stream.FramesPerSecond * 10).ToString(CultureInfo.InvariantCulture)]);
 
         if (targetCodec.Contains("qsv", StringComparison.InvariantCultureIgnoreCase))
-            command.AddRange(["-look_ahead", "1", "-extbrc", "1", "-look_ahead_depth", "16"]);
+            command.AddRange(["-look_ahead", "1", "-extbrc", "1", "-look_ahead_depth", "40"]);
 
         var videoPixelFormat = "yuv420p";
 
@@ -442,21 +423,19 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
             //"5s",
         ];
         
-        bool needsBtbnFfmpeg = executeArgs.ArgumentList.Any(arg =>
-            arg.Contains("libvmaf", StringComparison.OrdinalIgnoreCase) ||
-            arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
-            targetCodec.Contains("libsvtav1", StringComparison.OrdinalIgnoreCase) ||
-            targetCodec.Contains("libaom-av1", StringComparison.OrdinalIgnoreCase)
-        );
+        // bool needsBtbnFfmpeg = executeArgs.ArgumentList.Any(arg =>
+        //     arg.Contains("libvmaf", StringComparison.OrdinalIgnoreCase) ||
+        //     arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
+        //     targetCodec.Contains("libsvtav1", StringComparison.OrdinalIgnoreCase) ||
+        //     targetCodec.Contains("libaom-av1", StringComparison.OrdinalIgnoreCase)
+        // );
 
         // Append both to the existing PATH
-        //string abAv1Path = new FileInfo(abAv1).Directory!.FullName;
-        string ffmpegPath = new FileInfo(needsBtbnFfmpeg ? ffmpegBtbn : ffmpegJellyfin).Directory!.FullName;
+        //string ffmpegPath = new FileInfo(needsBtbnFfmpeg ? ffmpegBtbn : ffmpegJellyfin).Directory!.FullName;
+        string ffmpegPath = new FileInfo(ffmpegBtbn).Directory!.FullName;
         
         string? existingPath = Environment.GetEnvironmentVariable("PATH");
-        //string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
         string newPath = $"{ffmpegPath}{Path.PathSeparator}{existingPath}";
-        //string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
         executeArgs.EnvironmentalVariables["PATH"] = newPath;
         args.Logger?.ILog("New Path: " + newPath);
 
@@ -467,7 +446,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         {
             if (string.IsNullOrWhiteSpace(line))
                 return;
-
 
             line = line[(line.IndexOf(' ', StringComparison.Ordinal) + 1)..];
 
@@ -575,18 +553,6 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         /// Indicates whether the CRF search operation resulted in an error.
         /// </summary>
         public bool Error;
-
-        /// <summary>
-        /// Creates a failed CRF search result with the specified error message.
-        /// </summary>
-        /// <param name="message">The error message describing the failure.</param>
-        /// <returns>A <see cref="CrfSearchResult"/> instance representing failure.</returns>
-        public static CrfSearchResult Failed(string message) => new CrfSearchResult
-        {
-            Message = message,
-            Error = true,
-            Data = new List<CrfScore>()
-        };
     }
 
 
