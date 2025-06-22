@@ -444,7 +444,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         
         bool needsBtbnFfmpeg = executeArgs.ArgumentList.Any(arg =>
             arg.Contains("libvmaf", StringComparison.OrdinalIgnoreCase) ||
-            //arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
+            arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
             targetCodec.Contains("libsvtav1", StringComparison.OrdinalIgnoreCase) ||
             targetCodec.Contains("libaom-av1", StringComparison.OrdinalIgnoreCase)
         );
