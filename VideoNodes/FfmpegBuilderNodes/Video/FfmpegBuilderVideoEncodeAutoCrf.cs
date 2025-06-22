@@ -444,19 +444,19 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         
         bool needsBtbnFfmpeg = executeArgs.ArgumentList.Any(arg =>
             arg.Contains("libvmaf", StringComparison.OrdinalIgnoreCase) ||
-            arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
+            //arg.Contains("--min-vmaf", StringComparison.OrdinalIgnoreCase) ||
             targetCodec.Contains("libsvtav1", StringComparison.OrdinalIgnoreCase) ||
             targetCodec.Contains("libaom-av1", StringComparison.OrdinalIgnoreCase)
         );
 
         // Append both to the existing PATH
-        string abAv1Path = new FileInfo(abAv1).Directory!.FullName;
-        //string ffmpegPath = new FileInfo(needsBtbnFfmpeg ? ffmpegBtbn : ffmpegJellyfin).Directory!.FullName;
+        //string abAv1Path = new FileInfo(abAv1).Directory!.FullName;
+        string ffmpegPath = new FileInfo(needsBtbnFfmpeg ? ffmpegBtbn : ffmpegJellyfin).Directory!.FullName;
         
         string? existingPath = Environment.GetEnvironmentVariable("PATH");
         //string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
-        //string newPath = $"{ffmpegPath}{Path.PathSeparator}{existingPath}";
-        string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegBtbn}{Path.PathSeparator}{existingPath}";
+        string newPath = $"{ffmpegPath}{Path.PathSeparator}{existingPath}";
+        //string newPath = $"{abAv1Path}{Path.PathSeparator}{ffmpegPath}{Path.PathSeparator}{existingPath}";
         executeArgs.EnvironmentalVariables["PATH"] = newPath;
         args.Logger?.ILog("New Path: " + newPath);
 
