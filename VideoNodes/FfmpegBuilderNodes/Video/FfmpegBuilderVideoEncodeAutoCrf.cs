@@ -245,7 +245,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         if (video.Stream.DolbyVision == false || video.Stream.HDR  || FixDolby5 == false) 
             return forceEncode;
         
-        args.Logger?.ILog("Video is DoVi without a fallback, so were creating one");
+        args.Logger?.ILog("Video is DoVi without a fallback, so we are creating one");
         forceEncode = true;
         args.Logger?.ILog("Testing for openCL");
         var processResult = args.Execute(new ExecuteArgs()
@@ -259,12 +259,9 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         });
         if (processResult.ExitCode == 0)
         {
-            Model.CustomParameters.AddRange(
-            [
-                "-init_hw_device",
-                "opencl=ocl",
-                "-filter_hw_device",
-                "ocl"
+            Model.CustomParameters.AddRange([
+                "-init_hw_device", "opencl=ocl",
+                "-filter_hw_device", "ocl"
             ]);
 
             video.Filter.Add(
@@ -273,9 +270,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
         else
         {
             args.Logger?.WLog("Could not find openCL, you may want the oneVPL DockerMod");
-            video.Filter.Add(
-                "tonemapx=tonemap=bt2390:transfer=smpte2084:matrix=bt2020:primaries=bt2020"
-            );
+            video.Filter.Add("tonemapx=tonemap=bt2390:transfer=smpte2084:matrix=bt2020:primaries=bt2020");
         }
 
         args.Logger?.WLog("QSV does not support dolby vision 5 decode properly so we are disabling it");
@@ -478,8 +473,7 @@ public class FfmpegBuilderVideoEncodeAutoCrf : FfmpegBuilderNode
 
         var executeAbAv1 = args.Execute(executeArgs);
 
-        args.Logger?.Section("av-av1 output",  executeAbAv1.StandardOutput);
-        args.Logger?.Section("ab-av1 error", executeAbAv1.StandardError, LogType.Warning);
+        args.Logger?.Section("av-av1 output",  executeAbAv1.Output);
         args.Logger?.Table(returnValue.Data, "CRF Search Results", new[] { "Crf", "Score", "Size" });
 
         if (executeAbAv1.ExitCode == 0)
