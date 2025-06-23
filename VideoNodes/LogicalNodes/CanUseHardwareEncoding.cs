@@ -169,6 +169,13 @@ public class CanUseHardwareEncoding:Node
     /// <param name="args">the node parameters</param>
     /// <returns>true if can use it, otherwise false</returns>
     internal static bool CanProcess_Amd_H264(NodeParameters args) => CanProcess(args, "h264_amf");
+    
+    /// <summary>
+    /// Checks if this flow runner can use Vulkan H.264 encoder
+    /// </summary>
+    /// <param name="args">the node parameters</param>
+    /// <returns>true if can use it, otherwise false</returns>
+    internal static bool CanProcess_Vulkan_H264(NodeParameters args) => CanProcess(args, "h264_vulkan");
 
 
     /// <summary>

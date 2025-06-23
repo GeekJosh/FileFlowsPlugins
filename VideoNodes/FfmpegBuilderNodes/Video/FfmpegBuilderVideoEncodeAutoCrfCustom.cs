@@ -29,10 +29,10 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public string Codec { get; set; }
     
     /// <summary>
-    /// Gets or sets if CPU should be used for the encoding
+    /// Gets or sets the encoder to use
     /// </summary>
-    [Boolean(2)]
-    public bool UseCpu { get; set; }
+    [Select(nameof(VideoHelper.Encoders), 3)]
+    public string Encoder { get; set; }
 
     /// <summary>
     /// Gets or sets the mode to use for determing the VMAF
@@ -81,6 +81,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// </summary>
     [NumberFloat(8)] 
     [DefaultValue(15)] 
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float CrfLow { get; set; } = 15f;
     
     /// <summary>
@@ -88,6 +89,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// </summary>
     [NumberFloat(8)] 
     [DefaultValue(25)] 
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float CrfHigh { get; set; } = 25f;
 
     /// <summary>
@@ -123,7 +125,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         
         string error = string.Empty;
 
-        Codec = Codec?.EmptyAsNull() ?? "hevc";
+        string codec = Codec?.EmptyAsNull() ?? "hevc";
         
 
         string currentCodec = video.Stream.Codec?.ToLowerInvariant() ?? string.Empty;
@@ -167,7 +169,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         };
 
         // Video Description
-        var videoDescription = $"{GeneralHelper.HumanizeBitrate(videoBitRate)} {Codec}";
+        var videoDescription = $"{GeneralHelper.HumanizeBitrate(videoBitRate)} {codec}";
         List<string> videoColors = [];
         if (video.Stream.HDR)
             videoColors.Add("HDR");
@@ -200,13 +202,13 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         }
 
         // The bitrate is good so we check if the codec is already hevc
-        if (forceEncode == false && Codec.Equals(currentCodec, StringComparison.CurrentCultureIgnoreCase))
+        if (forceEncode == false && codec.Equals(currentCodec, StringComparison.CurrentCultureIgnoreCase))
         {
             args.Logger?.ILog($"Bitrate ({videoBitRate}) and codec ({currentCodec}) acceptable, skipping encode.");
             return 2;
         }
 
-        string encoder = GetEncoder(args);
+        string encoder = VideoHelper.GetEncoder(args, Encoder, codec);
 
         var optimizer = new VmafCrfOptimizer(args, FFMPEG, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
 
@@ -219,76 +221,6 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
             forceEncoding: forceEncode);
 
         return optimized ? 1 : 2;
-    }
-
-    /// <summary>
-    /// Gets the encoder to use
-    /// </summary>
-    /// <param name="args">the node parameters</param>
-    /// <returns>the encoder to use</returns>
-    private string GetEncoder(NodeParameters args)
-    {
-        bool noNvidia = UseCpu || 
-            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nonvidia" && x.Value as bool? == true);
-        bool noQsv = UseCpu ||
-                     args.Variables.Any(x => x.Key?.ToLowerInvariant() == "noqsv" && x.Value as bool? == true);
-        bool noVaapi =
-            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "novaapi" && x.Value as bool? == true);
-        bool noAmf =
-            args.Variables.Any(x =>
-                (x.Key?.ToLowerInvariant() == "noamf" || x.Key?.ToLowerInvariant() == "noamd") &&
-                x.Value as bool? == true);
-        bool noVideoToolbox =
-            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "novideotoolbox" && x.Value as bool? == true);
-        bool noVulkan =
-            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "novulkan" && x.Value as bool? == true);
-        bool noDxva2 = OperatingSystem.IsWindows() == false || 
-                       args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nodxva2" && x.Value as bool? == true);
-        bool noD3d11va = OperatingSystem.IsWindows() == false || 
-                         args.Variables.Any(x => x.Key?.ToLowerInvariant() == "nod3d11va" && x.Value as bool? == true);
-        bool noOpencl =
-            args.Variables.Any(x => x.Key?.ToLowerInvariant() == "noopencl" && x.Value as bool? == true);
-
-        switch (Codec)
-        {
-            case "hevc":
-            {
-                if (noQsv == false && CanUseHardwareEncoding.CanProcess_Qsv_Hevc(args))
-                    return "hevc_qsv";
-                if (noNvidia == false && CanUseHardwareEncoding.CanProcess_Nvidia_Hevc(args))
-                    return "hevc_nvenc";
-                if (noAmf == false && CanUseHardwareEncoding.CanProcess_Amd_Hevc(args))
-                    return "hevc_amf";
-                if (noVaapi == false && CanUseHardwareEncoding.CanProcess_Vulkan_Hevc(args))
-                    return "hevc_vulkan";
-                if (noVaapi == false && CanUseHardwareEncoding.CanProcess_Vaapi_Hevc(args))
-                    return "hevc_vaapi";
-                
-                return "libx265";
-            }
-            case "h264":
-            {
-                if (noQsv == false && CanUseHardwareEncoding.CanProcess_Qsv_H264(args))
-                    return "h264_qsv";
-                if (noNvidia == false && CanUseHardwareEncoding.CanProcess_Nvidia_H264(args))
-                    return "h264_nvenc";
-                if (noAmf == false && CanUseHardwareEncoding.CanProcess_Amd_H264(args))
-                    return "h264_amf";
-                if (noVaapi == false && CanUseHardwareEncoding.CanProcess_Vaapi_H264(args))
-                    return "h264_vaapi";
-                return "libx264";
-            }
-            case "av1":
-            {
-                if (noQsv == false && CanUseHardwareEncoding.CanProcess_Qsv_AV1(args))
-                    return "av1_qsv";
-                if (noNvidia == false && CanUseHardwareEncoding.CanProcess_Nvidia_AV1(args))
-                    return "av1_nvenc";
-                return "libsvtav1";
-            }
-        }
-
-        return Codec.ToLower();
     }
 
     public enum VmafMode
