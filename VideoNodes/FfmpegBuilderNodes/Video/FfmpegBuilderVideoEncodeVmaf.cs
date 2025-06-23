@@ -218,7 +218,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
 
         var ffmpeg = GetFFmpegExecutable(args);
 
-        var optimizer = new VmafCrfOptimizer(args, ffmpeg, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
+        var optimizer = new VmafCrfOptimizer(args, FFMPEG, ffmpeg, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
 
         var optimized = optimizer.Optimize(video, encoder, preset,
             minVmaf: minVmaf,

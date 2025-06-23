@@ -18,7 +18,8 @@ public class VmafResult
 
 public class VmafCrfOptimizer
 {
-    private readonly string _ffmpeg;
+    private readonly string _encodeFFmpeg;
+    private readonly string _vmafFFmpeg;
     private readonly ILogger _logger;
     private readonly string _tempDir;
     private readonly string _inputFile;
@@ -26,10 +27,11 @@ public class VmafCrfOptimizer
     private readonly float _fps;
     private readonly TimeSpan _duration;
 
-    public VmafCrfOptimizer(NodeParameters args, string ffmpeg, string inputFile, float fps, TimeSpan duration)
+    public VmafCrfOptimizer(NodeParameters args, string encodeFFmpeg, string vmafFfmpeg, string inputFile, float fps, TimeSpan duration)
     {
         _logger = args.Logger;
-        _ffmpeg = ffmpeg;
+        _encodeFFmpeg = encodeFFmpeg;
+        _vmafFFmpeg = vmafFfmpeg;
         _inputFile = inputFile;
         _tempDir = args.TempPath;
         _nodeParameters = args;
@@ -118,7 +120,7 @@ public class VmafCrfOptimizer
 
         if (ExecuteProcess(new()
             {
-                Command = _ffmpeg,
+                Command = _encodeFFmpeg,
                 ArgumentList =
                 [
                     "-hide_banner", "-y",
@@ -522,7 +524,7 @@ public class VmafCrfOptimizer
             if (ExecuteProcess(new()
                 {
                     LogCommand = true,
-                    Command = _ffmpeg,
+                    Command = _encodeFFmpeg,
                     ArgumentList = GetArguments(original, encoded, encoder, crf, pixelFormat, preset)
                 }).Failed(out var error))
                 throw new Exception(error);
@@ -536,7 +538,7 @@ public class VmafCrfOptimizer
 
             var outputResult = ExecuteProcess(new()
             {
-                Command = _ffmpeg,
+                Command = _vmafFFmpeg,
                 ArgumentList =
                 [
                     "-hide_banner",
