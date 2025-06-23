@@ -26,11 +26,12 @@ public class VmafCrfOptimizer
     private readonly NodeParameters _nodeParameters;
     private readonly float _fps;
     private readonly TimeSpan _duration;
-    
+
 
     public event Action<float, float> CrfTesting;
 
-    public VmafCrfOptimizer(NodeParameters args, string encodeFFmpeg, string vmafFfmpeg, string inputFile, float fps, TimeSpan duration)
+    public VmafCrfOptimizer(NodeParameters args, string encodeFFmpeg, string vmafFfmpeg, string inputFile, float fps,
+        TimeSpan duration)
     {
         _logger = args.Logger;
         _encodeFFmpeg = encodeFFmpeg;
@@ -43,62 +44,62 @@ public class VmafCrfOptimizer
     }
 
     public List<string> ExtractChunks(TimeSpan chunkDuration, int numberOfChunks)
-{
-    var outputFiles = new List<string>();
-    Directory.CreateDirectory(_tempDir);
-
-    double videoSeconds = _duration.TotalSeconds;
-
-    if (videoSeconds < 30)
     {
-        // Very short: use full video as single chunk
-        _logger?.ILog("📼 Video < 30s: extracting full video as single chunk.");
-        return ExtractSingleChunk(TimeSpan.Zero, _duration, "chunk_1.mp4");
-    }
+        var outputFiles = new List<string>();
+        Directory.CreateDirectory(_tempDir);
 
-    if (videoSeconds < 60)
-    {
-        // Short: extract 20s from middle, or less if video shorter
-        var duration = TimeSpan.FromSeconds(Math.Min(20, videoSeconds));
-        var start = TimeSpan.FromSeconds((videoSeconds - duration.TotalSeconds) / 2);
-        _logger?.ILog("📼 Video < 60s: extracting centered 20s chunk.");
-        return ExtractSingleChunk(start, duration, "chunk_1.mp4");
-    }
+        double videoSeconds = _duration.TotalSeconds;
 
-    if (videoSeconds < 180)
-    {
-        // Medium: two chunks at 30% and 60%
-        var first = TimeSpan.FromSeconds(videoSeconds * 0.3);
-        var second = TimeSpan.FromSeconds(videoSeconds * 0.6);
-        _logger?.ILog("📼 Video < 3min: extracting 2 strategic chunks.");
+        if (videoSeconds < 30)
+        {
+            // Very short: use full video as single chunk
+            _logger?.ILog("📼 Video < 30s: extracting full video as single chunk.");
+            return ExtractSingleChunk(TimeSpan.Zero, _duration, "chunk_1.mp4");
+        }
 
-        ExtractChunk(first, chunkDuration, "chunk_1.mp4", outputFiles);
-        ExtractChunk(second, chunkDuration, "chunk_2.mp4", outputFiles);
+        if (videoSeconds < 60)
+        {
+            // Short: extract 20s from middle, or less if video shorter
+            var duration = TimeSpan.FromSeconds(Math.Min(20, videoSeconds));
+            var start = TimeSpan.FromSeconds((videoSeconds - duration.TotalSeconds) / 2);
+            _logger?.ILog("📼 Video < 60s: extracting centered 20s chunk.");
+            return ExtractSingleChunk(start, duration, "chunk_1.mp4");
+        }
+
+        if (videoSeconds < 180)
+        {
+            // Medium: two chunks at 30% and 60%
+            var first = TimeSpan.FromSeconds(videoSeconds * 0.3);
+            var second = TimeSpan.FromSeconds(videoSeconds * 0.6);
+            _logger?.ILog("📼 Video < 3min: extracting 2 strategic chunks.");
+
+            ExtractChunk(first, chunkDuration, "chunk_1.mp4", outputFiles);
+            ExtractChunk(second, chunkDuration, "chunk_2.mp4", outputFiles);
+            return outputFiles;
+        }
+
+        // Standard: use 20%–80% logic
+        var startRange = videoSeconds * 0.2;
+        var endRange = videoSeconds * 0.8;
+        var usableRange = endRange - startRange;
+        double totalRequired = numberOfChunks * chunkDuration.TotalSeconds;
+
+        if (usableRange < totalRequired)
+        {
+            _logger?.WLog("⚠️ Not enough space in 20%–80% range, falling back to full duration and single chunk.");
+            return ExtractSingleChunk(TimeSpan.Zero, _duration, "chunk_1.mp4");
+        }
+
+        var spacing = usableRange / (numberOfChunks + 1);
+        for (int i = 0; i < numberOfChunks; i++)
+        {
+            var start = TimeSpan.FromSeconds(startRange + spacing * (i + 1));
+            var file = $"chunk_{i + 1}.mp4";
+            ExtractChunk(start, chunkDuration, file, outputFiles);
+        }
+
         return outputFiles;
     }
-
-    // Standard: use 20%–80% logic
-    var startRange = videoSeconds * 0.2;
-    var endRange = videoSeconds * 0.8;
-    var usableRange = endRange - startRange;
-    double totalRequired = numberOfChunks * chunkDuration.TotalSeconds;
-
-    if (usableRange < totalRequired)
-    {
-        _logger?.WLog("⚠️ Not enough space in 20%–80% range, falling back to full duration and single chunk.");
-        return ExtractSingleChunk(TimeSpan.Zero, _duration, "chunk_1.mp4");
-    }
-
-    var spacing = usableRange / (numberOfChunks + 1);
-    for (int i = 0; i < numberOfChunks; i++)
-    {
-        var start = TimeSpan.FromSeconds(startRange + spacing * (i + 1));
-        var file = $"chunk_{i + 1}.mp4";
-        ExtractChunk(start, chunkDuration, file, outputFiles);
-    }
-
-    return outputFiles;
-}
 
     // Extracts a single chunk and returns the list
     private List<string> ExtractSingleChunk(TimeSpan start, TimeSpan duration, string fileName)
@@ -177,115 +178,119 @@ public class VmafCrfOptimizer
         crfStart = RoundToNearestStep(crfStart, crfStep);
         crfEnd = RoundToNearestStep(crfEnd, crfStep);
 
-        VmafResult best = null;
-        float bestCrf = -1;
+        List<CrfTrial> trials = new();
 
-        _logger?.ILog($"🔍 Testing CRF {crfEnd}");
-        var topResult = TryCrf(chunks, encoder, pixelFormat, preset, crfEnd);
-        if (topResult == null)
-        {
-            _logger?.ELog($"❌ Unable to evaluate highest CRF {crfEnd} — cannot continue.");
+        var topTrial = EvaluateCrf("initial high", crfEnd, minVmaf, chunks, encoder, pixelFormat, preset, trials);
+        if (topTrial == null)
             return (-1, null, false);
-        }
 
-        if (topResult.Vmaf >= minVmaf)
-        {
-            _logger?.ILog($"✅ Highest CRF {crfEnd} met target VMAF {topResult.Vmaf:F2}, using this.");
-            return (crfEnd, topResult, topResult.SizePercent < 100f);
-        }
+        if (topTrial.Acceptable)
+            return (crfEnd, TryCrf(chunks, encoder, pixelFormat, preset, crfEnd),
+                topTrial.SizePercent <= maxSizePercent);
 
-        _logger?.ILog(
-            $"ℹ️ Highest CRF {crfEnd} did not meet VMAF target ({topResult.Vmaf:F2} < {minVmaf}).");
-
-        _logger?.ILog($"🔍 Testing CRF {crfStart}");
-        var lowResult = TryCrf(chunks, encoder, pixelFormat, preset, crfStart);
-        if (lowResult == null)
-        {
-            _logger?.ELog($"❌ Unable to evaluate lowest CRF {crfStart} — cannot continue.");
+        var lowTrial = EvaluateCrf("initial low", crfStart, minVmaf, chunks, encoder, pixelFormat, preset, trials);
+        if (lowTrial == null)
             return (-1, null, false);
-        }
 
-        if (lowResult.Vmaf < minVmaf)
+        var bestResult = TryCrf(chunks, encoder, pixelFormat, preset, crfStart);
+        if (bestResult == null || !lowTrial.Acceptable)
         {
-            _logger?.WLog(
-                $"❌ Even lowest CRF {crfStart} did not reach acceptable quality (VMAF {lowResult.Vmaf:F2} < {minVmaf}).");
-            return (-1, lowResult, false);
+            _logger?.WLog($"❌ Even lowest CRF {crfStart} did not reach acceptable quality.");
+            PrintCrfTrialTable(trials);
+            return (-1, bestResult, false);
         }
-
-        _logger?.ILog($"🔁 Starting search between CRF {crfStart} and {crfEnd} to find acceptable balance.");
 
         float low = crfStart;
         float high = crfEnd;
-        best = lowResult;
-        bestCrf = crfStart;
+        float bestCrf = crfStart;
 
         int iterations = 0;
         while (low + crfStep <= high && iterations < maxIterations)
         {
             float mid = RoundToStep((low + high) / 2f, crfStep);
-            _logger?.ILog($"🔍 Testing CRF {mid} (iteration {iterations + 1})...");
+            var trial = EvaluateCrf($"iteration {iterations + 1}", mid, minVmaf, chunks, encoder, pixelFormat, preset,
+                trials);
 
-            var result = TryCrf(chunks, encoder, pixelFormat, preset, mid);
-            if (result == null)
+            if (trial == null)
             {
-                _logger?.ILog($"⚠️ CRF {mid} could not be evaluated.");
                 high = mid - crfStep;
             }
-            else if (result.Vmaf >= minVmaf)
+            else if (trial.Acceptable)
             {
-                _logger?.ILog($"✅ CRF {mid} acceptable (VMAF {result.Vmaf:F2}) at {result.SizePercent:F2}% size.");
-                best = result;
+                bestResult = TryCrf(chunks, encoder, pixelFormat, preset, mid);
                 bestCrf = mid;
                 low = mid + crfStep;
             }
             else
             {
-                _logger?.ILog($"ℹ️ CRF {mid} below VMAF target ({result.Vmaf:F2} < {minVmaf}). Trying higher quality.");
                 high = mid - crfStep;
             }
 
             iterations++;
         }
-        
-        if (best != null)
+
+        if (bestResult != null)
         {
-            _logger?.ILog($"🏁 Selected CRF: {bestCrf} with size {best.SizePercent:0.##}% and VMAF {best.Vmaf:0.##}");
+            _logger?.ILog(
+                $"🏁 Selected CRF: {bestCrf} with size {bestResult.SizePercent:0.##}% and VMAF {bestResult.Vmaf:0.##}");
         }
         else
         {
             _logger?.WLog("❌ No CRF value met the target quality within given bounds.");
         }
-        
-        bool shouldReencode = best != null && best.SizePercent <= maxSizePercent;
 
-        if (best != null && !shouldReencode)
+        bool shouldReencode = bestResult != null && bestResult.SizePercent <= maxSizePercent;
+
+        if (bestResult != null && !shouldReencode)
         {
-            _logger?.ILog($"⚖️ CRF {bestCrf} met VMAF but resulted in {best.SizePercent:F2}% of original size. Skipping encode (limit is {maxSizePercent:F2}%).");
+            _logger?.ILog(
+                $"⚖️ CRF {bestCrf} met VMAF but resulted in {bestResult.SizePercent:F2}% of original size. Skipping encode (limit is {maxSizePercent:F2}%).");
         }
 
-        return (bestCrf, best, shouldReencode);
+        PrintCrfTrialTable(trials);
+        return (bestCrf, bestResult, shouldReencode);
     }
 
-    private string GetPixelFormat(FfmpegVideoStream videoStream, string encoder, out List<string> extraFilters)
+    private void PrintCrfTrialTable(List<CrfTrial> trials)
     {
-        extraFilters = new List<string>();
+        if (trials.Count == 0)
+            return;
 
-        string pixelFormat = encoder.Contains("qsv") ? "nv12" : "yuv420p";
+        var table = new System.Text.StringBuilder();
+        table.AppendLine("CRF    VMAF     File Size %   Acceptable");
+        table.AppendLine("----   -------  -------------  ----------");
 
-        if (videoStream.Stream.Is10Bit)
+        foreach (var trial in trials.OrderBy(t => t.Crf))
         {
-            pixelFormat = "yuv420p10le";
-
-            if (encoder.Contains("hevc", StringComparison.InvariantCultureIgnoreCase))
-            {
-                extraFilters.Add("-pix_fmt:v:0");
-                extraFilters.Add("p010le");
-                extraFilters.Add("-profile:v:0");
-                extraFilters.Add("main10");
-            }
+            table.AppendLine(
+                $"{trial.Crf,4:0.##}   {trial.Vmaf,7:0.00}   {trial.SizePercent,13:0.00}   {(trial.Acceptable ? "Yes" : "No")}");
         }
 
-        return pixelFormat;
+        _logger?.Section("CRF Evaluation Summary", table.ToString());
+    }
+
+
+    private CrfTrial? EvaluateCrf(string label, float crf, float minVmaf, List<string> chunks,
+        string encoder, string pixelFormat, string preset, List<CrfTrial> results)
+    {
+        _logger?.ILog($"🔍 Testing CRF {crf} ({label})...");
+
+        var result = TryCrf(chunks, encoder, pixelFormat, preset, crf);
+        if (result == null)
+        {
+            _logger?.ILog($"⚠️ CRF {crf} ({label}) could not be evaluated.");
+            return null;
+        }
+
+        bool acceptable = result.Vmaf >= minVmaf;
+        results.Add(new CrfTrial(crf, result.Vmaf, result.SizePercent, acceptable));
+
+        if (acceptable)
+            _logger?.ILog($"✅ CRF {crf} ({label}) acceptable — VMAF {result.Vmaf:F2}, size {result.SizePercent:F2}%.");
+        else
+            _logger?.ILog($"ℹ️ CRF {crf} ({label}) below VMAF target: {result.Vmaf:F2} < {minVmaf}.");
+
+        return new CrfTrial(crf, result.Vmaf, result.SizePercent, acceptable);
     }
 
     /// <summary>
@@ -317,10 +322,10 @@ public class VmafCrfOptimizer
         float maxSizePercent = 90f)
     {
         string pixelFormat = GetPixelFormatAndUpdateStream(stream, encoder);
-        
+
         crfStart = RoundToNearestStep(crfStart, crfStep);
         crfEnd = RoundToNearestStep(crfEnd, crfStep);
-        
+
         _logger.ILog($@"[Optimize Settings]
   Encoder        : {encoder}
   Preset         : {preset}
@@ -340,7 +345,7 @@ public class VmafCrfOptimizer
     - Duration:  : {stream.Stream.Duration}
     - Resolution : {stream.Stream.Width}x{stream.Stream.Height}
 ");
-        
+
         var (bestCrf, result, shouldReencode) = FindBestCrf(
             encoder, pixelFormat, preset,
             minVmaf, crfStart, crfEnd, crfStep,
@@ -377,7 +382,7 @@ public class VmafCrfOptimizer
         // 🚫 No encoding done
         return false;
     }
-    
+
     /// <summary>
     /// Rounds the given value to the nearest multiple of the specified step size,
     /// rounding midpoint values (e.g., 0.25 with step 0.5) down rather than up.
@@ -391,7 +396,7 @@ public class VmafCrfOptimizer
         float rounded = (float)Math.Floor(exact + 0.5f - 1e-6f); // bias halfway values down
         return rounded * step;
     }
-    
+
     /// <summary>
     /// Determines the pixel format and applies any necessary pix_fmt/profile filters to the stream.
     /// </summary>
@@ -522,9 +527,9 @@ public class VmafCrfOptimizer
     {
         var results = new List<VmafResult>();
 
-        for(int i=0; i<chunks.Count; i++)
+        for (int i = 0; i < chunks.Count; i++)
         {
-            var chunk =  chunks[i];
+            var chunk = chunks[i];
             CrfTesting?.Invoke(crf, Math.Clamp(i / ((float)chunks.Count) * 100, 0, 100));
             var r = ComputeVmaf(chunk, encoder, pixelFormat, crf, preset);
             if (!string.IsNullOrWhiteSpace(r.Error))
@@ -543,8 +548,8 @@ public class VmafCrfOptimizer
         return new VmafResult { SizePercent = avgSize, Vmaf = avgVmaf };
     }
 
-    
-    public VmafResult ComputeVmaf(string original, string encoder, string pixelFormat, float crf, string preset)
+
+    private VmafResult ComputeVmaf(string original, string encoder, string pixelFormat, float crf, string preset)
     {
         var encoded = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(original) + $"_encoded_crf{crf}.mp4");
         var result = new VmafResult();
@@ -676,7 +681,7 @@ public class VmafCrfOptimizer
         return result.Output ?? string.Empty;
     }
 
-    public class ProcessParameters
+    private class ProcessParameters
     {
         public string Command { get; set; }
         public List<string> ArgumentList { get; set; } = new();
@@ -686,4 +691,7 @@ public class VmafCrfOptimizer
         /// </summary>
         public bool LogCommand { get; set; } = false;
     }
+
+    private record CrfTrial(float Crf, float Vmaf, float SizePercent, bool Acceptable);
+
 }
