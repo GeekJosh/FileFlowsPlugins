@@ -167,7 +167,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         {
             VmafMode.Default => 3,
             VmafMode.Thorough => 5,
-            _ => Samples > 1 ? SampleLengthSeconds : 3
+            _ => Samples > 1 ? Samples : 3
         };
         float crfLow = Mode switch
         {
