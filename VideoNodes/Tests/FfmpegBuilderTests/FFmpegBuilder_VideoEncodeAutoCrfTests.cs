@@ -40,11 +40,11 @@ public class FFmpegBuilder_VideoEncodeAutoCrfTests: VideoTestBase
         var file = "/home/john/Videos/unprocessed/Big-Movie.mkv";
         InitVideo(file);//VideoMkv);
 
-        var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeAutoCrfCustom()
+        var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeVmaf()
         {
             Codec = "hevc",
             MinVmaf = 96,
-            Mode = FfmpegBuilderVideoEncodeAutoCrfCustom.VmafMode.Custom,
+            Mode = FfmpegBuilderVideoEncodeVmaf.VmafMode.Custom,
             Samples = 2,
             SampleLengthSeconds = 10
         };

@@ -43,18 +43,50 @@ public class VmafCrfOptimizer
         var outputFiles = new List<string>();
         Directory.CreateDirectory(_tempDir);
 
+        var videoDurationSeconds = _duration.TotalSeconds;
 
-        // Calculate the usable time range (between 20% and 80%)
-        var startRange = _duration.TotalSeconds * 0.2;
-        var endRange = _duration.TotalSeconds * 0.8;
+        // Calculate 20%–80% range
+        var startRange = videoDurationSeconds * 0.2;
+        var endRange = videoDurationSeconds * 0.8;
         var usableRange = endRange - startRange;
 
-        if (usableRange < numberOfChunks * chunkDuration.TotalSeconds)
+        double totalRequired = numberOfChunks * chunkDuration.TotalSeconds;
+
+        if (usableRange < totalRequired)
         {
-            _logger?.WLog("⚠️ Not enough space to place all chunks in the 20%-80% range.");
+            _logger?.WLog("⚠️ Not enough space in 20%–80% range, falling back to full duration and single chunk.");
+
+            var start = TimeSpan.Zero;
+            var chunkLength = chunkDuration > _duration ? _duration : chunkDuration;
+            var outputFile = Path.Combine(_tempDir, $"chunk_1.mp4");
+
+            if (!File.Exists(outputFile) || new FileInfo(outputFile).Length <= 1000)
+            {
+                _logger?.ILog($"✂️ Extracting fallback chunk at 0s for {chunkLength}");
+
+                ExecuteProcess(new()
+                {
+                    Command = _ffmpeg,
+                    ArgumentList =
+                    [
+                        "-hide_banner", "-y",
+                        "-ss", "0",
+                        "-i", _inputFile,
+                        "-t", chunkLength.TotalSeconds.ToString(CultureInfo.InvariantCulture),
+                        "-map", "0:v:0",
+                        "-c:v", "copy",
+                        outputFile
+                    ]
+                });
+            }
+
+            if (File.Exists(outputFile))
+                outputFiles.Add(outputFile);
+
             return outputFiles;
         }
 
+        // Otherwise, continue normal 20–80% extraction
         var spacing = usableRange / (numberOfChunks + 1);
 
         for (int i = 0; i < numberOfChunks; i++)
@@ -91,7 +123,6 @@ public class VmafCrfOptimizer
 
         return outputFiles;
     }
-
 
     private string GetCrfParameter(string encoder)
     {
