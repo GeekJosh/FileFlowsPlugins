@@ -26,6 +26,7 @@ public class VmafCrfOptimizer
     private readonly NodeParameters _nodeParameters;
     private readonly float _fps;
     private readonly TimeSpan _duration;
+    
 
     public event Action<float, float> CrfTesting;
 
@@ -156,17 +157,18 @@ public class VmafCrfOptimizer
         return "-crf";
     }
 
-    public (float bestCrf, VmafResult bestResult, bool shouldReencode) FindBestCrf(
+    private (float bestCrf, VmafResult bestResult, bool shouldReencode) FindBestCrf(
         string encoder,
         string pixelFormat,
         string preset,
-        float minVmaf = 93,
-        float crfStart = 10,
-        float crfEnd = 24,
-        float crfStep = 0.5f,
-        int numberOfChunks = 5,
-        int chunkSeconds = 20,
-        int maxIterations = 5)
+        float minVmaf,
+        float crfStart,
+        float crfEnd,
+        float crfStep,
+        int numberOfChunks,
+        int chunkSeconds,
+        int maxIterations,
+        float maxSizePercent)
     {
         var chunks = ExtractChunks(TimeSpan.FromSeconds(chunkSeconds), numberOfChunks);
         if (chunks.Count == 0)
@@ -244,7 +246,7 @@ public class VmafCrfOptimizer
 
             iterations++;
         }
-
+        
         if (best != null)
         {
             _logger?.ILog($"🏁 Selected CRF: {bestCrf} with size {best.SizePercent:0.##}% and VMAF {best.Vmaf:0.##}");
@@ -253,8 +255,14 @@ public class VmafCrfOptimizer
         {
             _logger?.WLog("❌ No CRF value met the target quality within given bounds.");
         }
+        
+        bool shouldReencode = best != null && best.SizePercent <= maxSizePercent;
 
-        bool shouldReencode = best != null && best.SizePercent < 100f;
+        if (best != null && !shouldReencode)
+        {
+            _logger?.ILog($"⚖️ CRF {bestCrf} met VMAF but resulted in {best.SizePercent:F2}% of original size. Skipping encode (limit is {maxSizePercent:F2}%).");
+        }
+
         return (bestCrf, best, shouldReencode);
     }
 
@@ -295,6 +303,7 @@ public class VmafCrfOptimizer
     /// <param name="numberOfChunks">Number of chunks to sample from the video for VMAF analysis.</param>
     /// <param name="chunkSeconds">Duration in seconds of each chunk.</param>
     /// <param name="maxIterations">Maximum number of iterations in the binary search.</param>
+    /// <param name="maxSizePercent">The maximum allowed size of the encoded file as a percentage of the original (e.g., 90 means the output must be 90% or smaller). Encoding is skipped if the resulting size exceeds this threshold.</param>
     /// <returns>True if the stream was modified with optimized settings; otherwise, false.</returns>
     public bool Optimize(FfmpegVideoStream stream, string encoder, string preset,
         bool forceEncoding = false,
@@ -304,7 +313,8 @@ public class VmafCrfOptimizer
         float crfStep = 0.5f,
         int numberOfChunks = 5,
         int chunkSeconds = 20,
-        int maxIterations = 5)
+        int maxIterations = 5,
+        float maxSizePercent = 90f)
     {
         string pixelFormat = GetPixelFormatAndUpdateStream(stream, encoder);
         
@@ -317,6 +327,7 @@ public class VmafCrfOptimizer
   Force Encoding : {forceEncoding}
   Pixel Format   : {pixelFormat}
   Min VMAF       : {minVmaf}
+  Max Size       : {maxSizePercent} %
   CRF Start      : {crfStart}
   CRF End        : {crfEnd}
   CRF Step       : {crfStep}
@@ -333,7 +344,7 @@ public class VmafCrfOptimizer
         var (bestCrf, result, shouldReencode) = FindBestCrf(
             encoder, pixelFormat, preset,
             minVmaf, crfStart, crfEnd, crfStep,
-            numberOfChunks, chunkSeconds, maxIterations
+            numberOfChunks, chunkSeconds, maxIterations, maxSizePercent
         );
 
         if (shouldReencode == false && forceEncoding == false)

@@ -41,16 +41,24 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public static List<ListOption> EncoderOptions => VideoHelper.Encoders;
 
     /// <summary>
+    /// Gets or sets te maximum size a file is estimated to be to do the encodce
+    /// </summary>
+    [Slider(3)]
+    [Range(1, 100)]
+    [DefaultValue(90)]
+    public float MaxSizePercent { get; set; } = 90f;
+    
+    /// <summary>
     /// Gets or sets the mode to use for determing the VMAF
     /// </summary>
-    [Select(nameof(VmafOptions), 3)]
+    [Select(nameof(VmafOptions), 4)]
     [DefaultValue(VmafMode.Default)] 
     public VmafMode Mode { get; set; } = VmafMode.Default;
 
     /// <summary>
     /// Gets or sets the minimum VMAF score
     /// </summary>
-    [NumberFloat(4)]
+    [NumberFloat(5)]
     [DefaultValue(93f)]
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float MinVmaf { get; set; } = 93f;
@@ -58,7 +66,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// <summary>
     /// The maximum bitrate allowed for encoding, in kilobits per second (Kbps).
     /// </summary>
-    [NumberInt(5)]
+    [NumberInt(6)]
     [DefaultValue(10_000)]
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float MaxBitrate { get; set; } = 10_000;
@@ -66,7 +74,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// <summary>
     /// Gets or sets the number of samples to take 
     /// </summary>
-    [NumberInt(6)]
+    [NumberInt(7)]
     [DefaultValue(3)]
     [Range(1, 10)]
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
@@ -75,7 +83,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// <summary>
     /// Gets or sets the length of a sample to take in seconds 
     /// </summary>
-    [NumberInt(7)]
+    [NumberInt(8)]
     [DefaultValue(20)]
     [Range(1, 60)]
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
@@ -84,7 +92,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// <summary>
     /// Gets or sets the low value for the VMAF testing
     /// </summary>
-    [NumberFloat(8)] 
+    [NumberFloat(20)] 
     [DefaultValue(15)] 
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float CrfLow { get; set; } = 15f;
@@ -92,7 +100,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// <summary>
     /// Gets or sets the high value for the VMAF testing
     /// </summary>
-    [NumberFloat(8)] 
+    [NumberFloat(21)] 
     [DefaultValue(25)] 
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
     public float CrfHigh { get; set; } = 25f;
@@ -146,6 +154,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
             return args.Fail("Unable to determine video bitrate");
 
         float maxBitrate = Mode is VmafMode.Custom && MaxBitrate > 100 ? MaxBitrate : 10_000;
+        float maxPercent = Math.Clamp(MaxSizePercent, 1, 100);
         var targetBitRate = maxBitrate * 1000;
         float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 94f;
         int sampleLengthSeconds = Mode switch
@@ -232,7 +241,8 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
             crfEnd:  crfHigh,
             numberOfChunks: samples,
             chunkSeconds: sampleLengthSeconds,
-            forceEncoding: forceEncode);
+            forceEncoding: forceEncode,
+            maxSizePercent: maxPercent);
 
         return optimized ? 1 : 2;
     }
