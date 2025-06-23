@@ -219,7 +219,14 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         var ffmpeg = GetFFmpegExecutable(args);
 
         var optimizer = new VmafCrfOptimizer(args, FFMPEG, ffmpeg, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
+        optimizer.CrfTesting += (crf, percent) =>
+        {
+            args.RecordAdditionalInfo("VMAF Step", $"Testing {crf:F1} CRF", 1, null);
+            args.PartPercentageUpdate(percent);
+        };
 
+        args.RecordAdditionalInfo("VMAF Step", "Extracting Samples", 1, null);
+        
         var optimized = optimizer.Optimize(video, encoder, preset,
             minVmaf: minVmaf,
             crfStart: crfLow,

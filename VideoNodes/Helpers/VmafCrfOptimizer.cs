@@ -27,6 +27,8 @@ public class VmafCrfOptimizer
     private readonly float _fps;
     private readonly TimeSpan _duration;
 
+    public event Action<float, float> CrfTesting;
+
     public VmafCrfOptimizer(NodeParameters args, string encodeFFmpeg, string vmafFfmpeg, string inputFile, float fps, TimeSpan duration)
     {
         _logger = args.Logger;
@@ -170,57 +172,73 @@ public class VmafCrfOptimizer
         if (chunks.Count == 0)
             throw new Exception("No chunks extracted.");
 
-        float low = crfStart;
-        float high = crfEnd;
+        crfStart = RoundToNearestStep(crfStart, crfStep);
+        crfEnd = RoundToNearestStep(crfEnd, crfStep);
 
         VmafResult best = null;
         float bestCrf = -1;
 
-        // First test the highest CRF for quick accept
-        _logger?.ILog($"Testing highest CRF first: {high}");
-        var topResult = TryCrf(chunks, encoder, pixelFormat, preset, high);
-        
+        _logger?.ILog($"🔍 Trying highest CRF first: {crfEnd}");
+        var topResult = TryCrf(chunks, encoder, pixelFormat, preset, crfEnd);
         if (topResult == null)
         {
-            _logger?.ELog($"❌ Highest CRF {high} failed to encode or evaluate — cannot continue.");
-            return (-1, null, false); // Indicates failure
+            _logger?.ELog($"❌ Unable to evaluate highest CRF {crfEnd} — cannot continue.");
+            return (-1, null, false);
         }
 
         if (topResult.Vmaf >= minVmaf)
         {
-            _logger?.ILog($"✅ Highest CRF {high} passed with VMAF {topResult.Vmaf:F2}, using this.");
-            return (high, topResult, topResult.SizePercent < 100f);
+            _logger?.ILog($"✅ Highest CRF {crfEnd} met target VMAF {topResult.Vmaf:F2}, using this.");
+            return (crfEnd, topResult, topResult.SizePercent < 100f);
         }
 
-        _logger?.ILog($"Highest CRF {high} failed, searching lower.");
-        high -= crfStep;
+        _logger?.ILog(
+            $"ℹ️ Highest CRF {crfEnd} did not meet VMAF target ({topResult.Vmaf:F2} < {minVmaf}), trying lowest CRF {crfStart}...");
+
+        var lowResult = TryCrf(chunks, encoder, pixelFormat, preset, crfStart);
+        if (lowResult == null)
+        {
+            _logger?.ELog($"❌ Unable to evaluate lowest CRF {crfStart} — cannot continue.");
+            return (-1, null, false);
+        }
+
+        if (lowResult.Vmaf < minVmaf)
+        {
+            _logger?.WLog(
+                $"❌ Even lowest CRF {crfStart} did not reach acceptable quality (VMAF {lowResult.Vmaf:F2} < {minVmaf}).");
+            return (-1, lowResult, false);
+        }
+
+        _logger?.ILog($"🔁 Starting search between CRF {crfStart} and {crfEnd} to find acceptable balance.");
+
+        float low = crfStart;
+        float high = crfEnd;
+        best = lowResult;
+        bestCrf = crfStart;
 
         int iterations = 0;
-        while (low <= high && iterations < maxIterations)
+        while (low + crfStep <= high && iterations < maxIterations)
         {
-            float midRaw = (low + high) / 2;
-            float mid = RoundToStep(midRaw, crfStep);
-
-            _logger?.ILog($"\n🔍 Testing CRF {mid} (iteration {iterations + 1})...");
+            float mid = RoundToStep((low + high) / 2f, crfStep);
+            _logger?.ILog($"🔍 Testing CRF {mid} (iteration {iterations + 1})...");
 
             var result = TryCrf(chunks, encoder, pixelFormat, preset, mid);
-
             if (result == null)
             {
-                _logger?.ILog($"❌ CRF {mid} failed to encode.");
+                _logger?.ILog($"⚠️ CRF {mid} could not be evaluated.");
                 high = mid - crfStep;
             }
             else if (result.Vmaf >= minVmaf)
             {
-                _logger?.ILog($"✅ CRF {mid} passed. Size: {result.SizePercent:F2}%, VMAF: {result.Vmaf:F2}");
-                bestCrf = mid;
+                _logger?.ILog($"✅ CRF {mid} acceptable (VMAF {result.Vmaf:F2}) at {result.SizePercent:F2}% size.");
                 best = result;
-                low = mid + crfStep; // try more compression
+                bestCrf = mid;
+                low = mid + crfStep;
             }
             else
             {
-                _logger?.ILog($"⚠️ CRF {mid} too lossy (VMAF {result.Vmaf:F2} < {minVmaf}).");
-                high = mid - crfStep; // try better quality
+                _logger?.ILog($"ℹ️ CRF {mid} below VMAF target ({result.Vmaf:F2} < {minVmaf}). Trying higher quality.");
+                high = mid - crfStep;
             }
 
             iterations++;
@@ -228,18 +246,16 @@ public class VmafCrfOptimizer
 
         if (best != null)
         {
-            _logger?.ILog($"🏁 Best CRF: {bestCrf} with size {best.SizePercent:0.##}% and VMAF {best.Vmaf:0.##}");
+            _logger?.ILog($"🏁 Selected CRF: {bestCrf} with size {best.SizePercent:0.##}% and VMAF {best.Vmaf:0.##}");
         }
         else
         {
-            _logger?.WLog("❌ No CRF produced acceptable results.");
+            _logger?.WLog("❌ No CRF value met the target quality within given bounds.");
         }
 
         bool shouldReencode = best != null && best.SizePercent < 100f;
         return (bestCrf, best, shouldReencode);
     }
-
-
 
     private string GetPixelFormat(FfmpegVideoStream videoStream, string encoder, out List<string> extraFilters)
     {
@@ -494,8 +510,10 @@ public class VmafCrfOptimizer
     {
         var results = new List<VmafResult>();
 
-        foreach (var chunk in chunks)
+        for(int i=0; i<chunks.Count; i++)
         {
+            var chunk =  chunks[i];
+            CrfTesting?.Invoke(crf, i / ((float)chunks.Count));
             var r = ComputeVmaf(chunk, encoder, pixelFormat, crf, preset);
             if (!string.IsNullOrWhiteSpace(r.Error))
             {
@@ -513,7 +531,7 @@ public class VmafCrfOptimizer
         return new VmafResult { SizePercent = avgSize, Vmaf = avgVmaf };
     }
 
-// Updated ComputeVmaf with ffmpeg speed improvements
+    
     public VmafResult ComputeVmaf(string original, string encoder, string pixelFormat, float crf, string preset)
     {
         var encoded = Path.Combine(_tempDir, Path.GetFileNameWithoutExtension(original) + $"_encoded_crf{crf}.mp4");
