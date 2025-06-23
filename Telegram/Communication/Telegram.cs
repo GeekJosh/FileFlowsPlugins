@@ -3,12 +3,12 @@ namespace FileFlows.Telegram.Communication;
 /// <summary>
 /// A Telegram flow element that sends a message
 /// </summary>
-public class Telegram: Node
+public class Telegram : Node
 {
     /// <summary>
     /// Gets the number of inputs to this flow element
     /// </summary>
-    public override int Inputs => 1;
+    public override int Inputs => 3;
     /// <summary>
     /// Gets the number of outputs to this flow element
     /// </summary>
@@ -28,28 +28,38 @@ public class Telegram: Node
 
     /// <inheritdoc />
     public override string CustomColor => "#0088CC";
-    
+
     /// <summary>
     /// Gets the Help URL
     /// </summary>
     public override string HelpUrl => "https://fileflows.com/docs/plugins/telegram";
 
     /// <summary>
+    /// Gets or set the topic name to send the message to. Must match the name of a topic in the plugin settings.
+    /// </summary>
+    [Text(1)]
+    public string TopicName { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the message
     /// </summary>
     [Required]
-    [Template(1, nameof(MessageTemplates))]
+    [Template(2, nameof(MessageTemplates))]
     public string Message { get; set; } = string.Empty;
+
+
+    /// <summary>
+    /// If true, an error will be thrown if the topic name does not match any topic in the plugin settings.
+    /// </summary>
+    [Boolean(3)]
+    public bool ErrorOnUnmatchedTopic { get; set; } = false;
 
     private static List<ListOption>? _MessageTemplates;
     public static List<ListOption> MessageTemplates
     {
         get
         {
-            if (_MessageTemplates == null)
-            {
-                _MessageTemplates = new List<ListOption>
-                {
+            _MessageTemplates ??= [
                     new () { Label = "Basic", Value = @"File: {{ file.Orig.FullName }}
 Size: {{ file.Size }}" },
                     new () { Label = "File Size Changes", Value = @"
@@ -66,12 +76,10 @@ File grew in size: {{ difference | math.abs | file_size }}
 {{ else }}
 File shrunk in size by: {{ difference | file_size }} / {{ percent }}%
 {{ end }}"}
-                };
-            }
+                ];
             return _MessageTemplates;
         }
     }
-
 
     /// <summary>
     /// Executes the flow element
@@ -102,9 +110,28 @@ File shrunk in size by: {{ difference | file_size }} / {{ percent }}%
                 return 2;
             }
 
+            string topicId = string.Empty;
+            if (!string.IsNullOrWhiteSpace(TopicName))
+            {
+                if (settings?.TopicIdMapping == null || settings.TopicIdMapping.Count == 0)
+                {
+                    args.Logger?.WLog($"Cannot use topic '{TopicName}': Topic ID Mapping has not been configured in settings");
+                    if (ErrorOnUnmatchedTopic)
+                        return 2;
+                }
+
+                topicId = settings?.TopicIdMapping.FirstOrDefault(x => x.Key.Equals(TopicName, StringComparison.OrdinalIgnoreCase)).Value ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(topicId))
+                {
+                    args.Logger?.WLog($"Cannot use topic '{TopicName}': no value configured in settings");
+                    if (ErrorOnUnmatchedTopic)
+                        return 2;
+                }
+            }
+
             var message = args.RenderTemplate!(Message);
 
-            var result = SendMessage(settings.BotToken, settings.ChatId, message);
+            var result = SendMessage(settings!.BotToken, settings.ChatId, topicId, message);
 
             if (result.success)
                 return 1;
@@ -116,49 +143,49 @@ File shrunk in size by: {{ difference | file_size }} / {{ percent }}%
         {
             args.Logger?.WLog("Error sending message: " + ex.Message);
             return 2;
-        } 
+        }
     }
-    
-    
+
+
     /// <summary>
     /// The method used to send the request
     /// </summary>
-    private Func<string, string, string, (bool success, string body)>? _SendMessage;
-    
+    private Func<string, string, string, string, (bool success, string body)>? _SendMessage;
+
     /// <summary>
     /// Gets the method used to send a request
     /// </summary>
-    internal Func<string, string, string, (bool success, string body)> SendMessage
+    internal Func<string, string, string, string, (bool success, string body)> SendMessage
     {
         get
         {
-            if(_SendMessage == null)
-            {
-                _SendMessage = (string botToken, string chatId, string message) =>
+            _SendMessage ??= (botToken, chatId, topicId, message) =>
                 {
                     try
                     {
-                        using HttpClient client = new HttpClient();
-                        
-                            string apiUrl = $"https://api.telegram.org/bot{botToken}/sendMessage";
-            
-                            var content = new FormUrlEncodedContent(new[]
-                            {
-                                new KeyValuePair<string, string>("chat_id", chatId),
-                                new KeyValuePair<string, string>("text", message)
-                            });
+                        using HttpClient client = new();
 
-                            var response = client.PostAsync(apiUrl, content).Result;
-                            string responseBody = response.Content.ReadAsStringAsync().Result;
+                        string apiUrl = $"https://api.telegram.org/bot{botToken}/sendMessage";
+
+                        var apiParams = new List<KeyValuePair<string, string>> {
+                            new("chat_id", chatId),
+                            new("text", message)
+                        };
+
+                        if (!string.IsNullOrWhiteSpace(topicId))
+                            apiParams.Add(new("message_thread_id", topicId));
+
+                        var content = new FormUrlEncodedContent(apiParams);
+                        var response = client.PostAsync(apiUrl, content).Result;
+                        string responseBody = response.Content.ReadAsStringAsync().Result;
 
                         return (response.IsSuccessStatusCode, responseBody);
                     }
-                    catch(Exception ex)
+                    catch (Exception ex)
                     {
                         return (false, ex.Message);
                     }
                 };
-            }
             return _SendMessage;
         }
 #if(DEBUG)
