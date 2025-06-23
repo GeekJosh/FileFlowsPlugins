@@ -216,7 +216,9 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
 
         string encoder = VideoHelper.GetEncoder(args, Encoder, codec);
 
-        var optimizer = new VmafCrfOptimizer(args, FFMPEG, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
+        var ffmpeg = GetFFmpegExecutable(args);
+
+        var optimizer = new VmafCrfOptimizer(args, ffmpeg, localFile, video.Stream.FramesPerSecond, video.Stream.Duration);
 
         var optimized = optimizer.Optimize(video, encoder, preset,
             minVmaf: minVmaf,
@@ -229,10 +231,44 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         return optimized ? 1 : 2;
     }
 
+    /// <summary>
+    /// Gets the FFmpeg version to use for VMAF
+    /// </summary>
+    /// <param name="args">the node parameters</param>
+    /// <returns>the FFmpeg version to use for VMAF</returns>
+    private string GetFFmpegExecutable(NodeParameters args)
+    {
+        var ffmpeg = args.GetToolPath("FFmpegVMAF");
+        if(string.IsNullOrWhiteSpace(ffmpeg))
+            return ffmpeg;
+
+        if (args.IsDocker == false) 
+            return FFMPEG;
+        
+        if (File.Exists("/app/common/ffmpeg-static/ffmpeg"))
+            return "/app/common/ffmpeg-static/ffmpeg";
+        if(File.Exists("/opt/ffmpeg-static/bin/ffmpeg"))
+            return "/opt/ffmpeg-static/bin/ffmpeg";
+
+        return FFMPEG;
+    }
+
+    /// <summary>
+    /// Different VMAF modes
+    /// </summary>
     public enum VmafMode
     {
+        /// <summary>
+        /// Default
+        /// </summary>
         Default = 0,
+        /// <summary>
+        /// A more thorough scan
+        /// </summary>
         Thorough = 1,
+        /// <summary>
+        /// Custom scan
+        /// </summary>
         Custom = 2
     }
 }
