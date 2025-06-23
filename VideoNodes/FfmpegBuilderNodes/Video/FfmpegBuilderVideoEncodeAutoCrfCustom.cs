@@ -27,12 +27,18 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     [Select(nameof(CodecOptions), 1)]
     [DefaultValue("hevc")]
     public string Codec { get; set; }
-    
+
     /// <summary>
     /// Gets or sets the encoder to use
     /// </summary>
-    [Select(nameof(VideoHelper.Encoders), 3)]
-    public string Encoder { get; set; }
+    [Select(nameof(EncoderOptions), 3)]
+    [DefaultValue("")]
+    public string Encoder { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the encoders options
+    /// </summary>
+    public static List<ListOption> EncoderOptions => VideoHelper.Encoders;
 
     /// <summary>
     /// Gets or sets the mode to use for determing the VMAF
