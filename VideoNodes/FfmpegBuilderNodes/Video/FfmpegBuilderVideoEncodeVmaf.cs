@@ -239,7 +239,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     private string GetFFmpegExecutable(NodeParameters args)
     {
         var ffmpeg = args.GetToolPath("FFmpegVMAF");
-        if(string.IsNullOrWhiteSpace(ffmpeg))
+        if(string.IsNullOrWhiteSpace(ffmpeg) == false)
             return ffmpeg;
 
         if (args.IsDocker == false) 
