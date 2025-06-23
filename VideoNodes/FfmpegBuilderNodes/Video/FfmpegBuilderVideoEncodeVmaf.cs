@@ -154,7 +154,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
             return args.Fail("Unable to determine video bitrate");
 
         float maxBitrate = Mode is VmafMode.Custom && MaxBitrate > 100 ? MaxBitrate : 10_000;
-        float maxPercent = Math.Clamp(MaxSizePercent, 1, 100);
+        float maxPercent = MaxSizePercent < 1 ? 90 : Math.Clamp(MaxSizePercent, 1, 100);
         var targetBitRate = maxBitrate * 1000;
         float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 94f;
         int sampleLengthSeconds = Mode switch
@@ -230,7 +230,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         optimizer.CrfTesting += (crf, percent) =>
         {
             args.RecordAdditionalInfo("VMAF Step", $"Testing {crf:F1} CRF", 1, null);
-            args.PartPercentageUpdate(percent);
+            args.PartPercentageUpdate?.Invoke(percent);
         };
 
         args.RecordAdditionalInfo("VMAF Step", "Extracting Samples", 1, null);
