@@ -251,22 +251,26 @@ public class VmafCrfOptimizer
         return (bestCrf, bestResult, shouldReencode);
     }
 
+    /// <summary>
+    /// Prints the results to the log as a table
+    /// </summary>
+    /// <param name="trials">the trials</param>
     private void PrintCrfTrialTable(List<CrfTrial> trials)
     {
-        if (trials.Count == 0)
+        if (trials == null || trials.Count == 0)
             return;
 
-        var table = new System.Text.StringBuilder();
-        table.AppendLine("CRF    VMAF     File Size %   Acceptable");
-        table.AppendLine("----   -------  -------------  ----------");
+        var formatted = trials
+            .OrderBy(t => t.Crf)
+            .Select(t => new
+            {
+                Crf = t.Crf.ToString("0.##"),
+                Vmaf = t.Vmaf.ToString("0.00"),
+                SizePercent = t.SizePercent.ToString("0.00"),
+                Acceptable = t.Acceptable ? "Yes" : "No"
+            });
 
-        foreach (var trial in trials.OrderBy(t => t.Crf))
-        {
-            table.AppendLine(
-                $"{trial.Crf,4:0.##}   {trial.Vmaf,7:0.00}   {trial.SizePercent,13:0.00}   {(trial.Acceptable ? "Yes" : "No")}");
-        }
-
-        _logger?.Section("CRF Evaluation Summary", table.ToString());
+        _logger?.Table(formatted, "📊 CRF Evaluation Summary");
     }
 
 
