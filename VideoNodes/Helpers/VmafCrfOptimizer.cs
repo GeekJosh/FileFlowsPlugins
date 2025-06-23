@@ -288,7 +288,11 @@ public class VmafCrfOptimizer
   Chunks         : {numberOfChunks}
   Chunk Seconds  : {chunkSeconds}
   Max Iterations : {maxIterations}
-  Stream Info    : Codec={stream.Codec}, BitDepth={(stream.Stream.Is10Bit ? 10 : 8)}, Resolution={stream.Stream.Width}x{stream.Stream.Height}
+  Stream Info:
+    - Codec      : {stream.Codec}
+    - BitDepth   : {(stream.Stream.Is10Bit ? 10 : 8)}
+    - Duration:  : {stream.Stream.Duration}
+    - Resolution : {stream.Stream.Width}x{stream.Stream.Height}
 ");
         
         var (bestCrf, result, shouldReencode) = FindBestCrf(
