@@ -46,7 +46,72 @@ public class FFmpegBuilder_VideoEncodeAutoCrfTests: VideoTestBase
             MinVmaf = 96,
             Mode = FfmpegBuilderVideoEncodeVmaf.VmafMode.Custom,
             Samples = 2,
-            SampleLengthSeconds = 10
+            SampleLengthSeconds = 10,
+            VmafFps = 15
+        };
+
+        ffmpegCrfEncode.PreExecute(args);
+        int result = ffmpegCrfEncode.Execute(args);
+
+        Assert.AreEqual(1, result);
+    }
+    
+    
+    /// <summary>
+    /// Crf
+    /// </summary>
+    [TestMethod]
+    public void Crf_Balanced()
+    {
+        var file = "/home/john/Videos/unprocessed/Big-Movie.mkv";
+        InitVideo(file);//VideoMkv);
+
+        var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeVmaf()
+        {
+            Codec = "hevc",
+            Mode = FfmpegBuilderVideoEncodeVmaf.VmafMode.Balanced,
+        };
+
+        ffmpegCrfEncode.PreExecute(args);
+        int result = ffmpegCrfEncode.Execute(args);
+
+        Assert.AreEqual(1, result);
+    }
+    
+    /// <summary>
+    /// Crf
+    /// </summary>
+    [TestMethod]
+    public void Crf_FastScan()
+    {
+        var file = "/home/john/Videos/unprocessed/Big-Movie.mkv";
+        InitVideo(file);//VideoMkv);
+
+        var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeVmaf()
+        {
+            Codec = "hevc",
+            Mode = FfmpegBuilderVideoEncodeVmaf.VmafMode.FastScan,
+        };
+
+        ffmpegCrfEncode.PreExecute(args);
+        int result = ffmpegCrfEncode.Execute(args);
+
+        Assert.AreEqual(1, result);
+    }
+    
+    /// <summary>
+    /// Crf
+    /// </summary>
+    [TestMethod]
+    public void Crf_Thorough()
+    {
+        var file = "/home/john/Videos/unprocessed/Big-Movie.mkv";
+        InitVideo(file);//VideoMkv);
+
+        var ffmpegCrfEncode = new FfmpegBuilderVideoEncodeVmaf()
+        {
+            Codec = "hevc",
+            Mode = FfmpegBuilderVideoEncodeVmaf.VmafMode.Thorough,
         };
 
         ffmpegCrfEncode.PreExecute(args);

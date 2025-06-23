@@ -44,8 +44,8 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// Gets or sets the mode to use for determing the VMAF
     /// </summary>
     [Select(nameof(VmafOptions), 3)]
-    [DefaultValue(VmafMode.Default)] 
-    public VmafMode Mode { get; set; } = VmafMode.Default;
+    [DefaultValue(VmafMode.Balanced)] 
+    public VmafMode Mode { get; set; } = VmafMode.Balanced;
 
     /// <summary>
     /// Gets or sets te maximum size a file is estimated to be to do the encodce
@@ -106,6 +106,13 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public float CrfHigh { get; set; } = 25f;
 
     /// <summary>
+    /// Gets or sets the FPS to run the VMAF in
+    /// </summary>
+    [NumberInt(30)]
+    [ConditionEquals(nameof(Mode), VmafMode.Custom)]
+    public int VmafFps { get; set; } = 0;
+
+    /// <summary>
     /// Gets the list of available codec options for encoding.
     /// Each option has a label and a corresponding codec value.
     /// </summary>
@@ -121,7 +128,8 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// </summary>
     public static List<ListOption> VmafOptions => new ()
     {
-        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Default)}", Value = VmafMode.Default },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Balanced)}", Value = VmafMode.Balanced },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.FastScan)}", Value = VmafMode.FastScan },
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Thorough)}", Value = VmafMode.Thorough },
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Custom)}", Value = VmafMode.Custom },
     };
@@ -156,30 +164,50 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         float maxBitrate = Mode is VmafMode.Custom && MaxBitrate > 100 ? MaxBitrate : 10_000;
         float maxPercent = MaxSizePercent < 1 ? 90 : Math.Clamp(MaxSizePercent, 1, 100);
         var targetBitRate = maxBitrate * 1000;
-        float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 94f;
-        int sampleLengthSeconds = Mode switch
-        {
-            VmafMode.Default => 10,
-            VmafMode.Thorough => 20,
-            _ => SampleLengthSeconds > 2 ? SampleLengthSeconds : 10
-        };
+        float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 95f;
         int samples = Mode switch
         {
-            VmafMode.Default => 3,
+            VmafMode.FastScan => 2,
+            VmafMode.Balanced => 3,
             VmafMode.Thorough => 5,
-            _ => Samples > 1 ? Samples : 3
+            VmafMode.Custom => Samples > 1 ? Samples : 3,
+            _ => 3
         };
+
+        int sampleLengthSeconds = Mode switch
+        {
+            VmafMode.FastScan => 8,
+            VmafMode.Balanced => 12,
+            VmafMode.Thorough => 20,
+            VmafMode.Custom => SampleLengthSeconds > 2 ? SampleLengthSeconds : 10,
+            _ => 12
+        };
+
+        int vmafFps = Mode switch
+        {
+            VmafMode.FastScan => 15,
+            VmafMode.Balanced => 15,
+            VmafMode.Thorough => 0, // use full native fps for best accuracy
+            VmafMode.Custom => VmafFps,
+            _ => 15
+        };
+
         float crfLow = Mode switch
         {
-            VmafMode.Default => 15,
-            VmafMode.Thorough => 15,
-            _ => CrfLow > 3 ? CrfLow : 15
+            VmafMode.FastScan => 20f,
+            VmafMode.Balanced => 16f,
+            VmafMode.Thorough => 15f,
+            VmafMode.Custom => CrfLow > 3 ? CrfLow : 15f,
+            _ => 15f
         };
+
         float crfHigh = Mode switch
         {
-            VmafMode.Default => 25,
-            VmafMode.Thorough => 25,
-            _ => CrfHigh > crfLow ? CrfHigh : Math.Max(25, crfLow + 5)
+            VmafMode.FastScan => 24f,
+            VmafMode.Balanced => 24f,
+            VmafMode.Thorough => 24f,
+            VmafMode.Custom => CrfHigh > crfLow ? CrfHigh : Math.Max(24, crfLow + 5),
+            _ => 24f
         };
 
         // Video Description
@@ -246,7 +274,9 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
             numberOfChunks: samples,
             chunkSeconds: sampleLengthSeconds,
             forceEncoding: forceEncode,
-            maxSizePercent: maxPercent);
+            maxSizePercent: maxPercent,
+            vmafFps: vmafFps
+        );
 
         return optimized ? 1 : 2;
     }
@@ -279,16 +309,20 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public enum VmafMode
     {
         /// <summary>
-        /// Default
+        /// Moderate sampling and length, good balance between accuracy and runtime.
         /// </summary>
-        Default = 0,
+        Balanced = 0,
         /// <summary>
-        /// A more thorough scan
+        /// Small number of samples, shorter sample length, moderate FPS, suitable for quick approximations.
         /// </summary>
-        Thorough = 1,
+        FastScan = 1,
+        /// <summary>
+        ///  More samples, longer chunks, full native FPS, highest accuracy but slowest.
+        /// </summary>
+        Thorough = 2,
         /// <summary>
         /// Custom scan
         /// </summary>
-        Custom = 2
+        Custom = 3
     }
 }
