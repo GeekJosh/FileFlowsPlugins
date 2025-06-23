@@ -38,70 +38,85 @@ public class VmafCrfOptimizer
     }
 
     public List<string> ExtractChunks(TimeSpan chunkDuration, int numberOfChunks)
+{
+    var outputFiles = new List<string>();
+    Directory.CreateDirectory(_tempDir);
+
+    double videoSeconds = _duration.TotalSeconds;
+
+    if (videoSeconds < 30)
+    {
+        // Very short: use full video as single chunk
+        _logger?.ILog("📼 Video < 30s: extracting full video as single chunk.");
+        return ExtractSingleChunk(TimeSpan.Zero, _duration, "chunk_1.mp4");
+    }
+
+    if (videoSeconds < 60)
+    {
+        // Short: extract 20s from middle, or less if video shorter
+        var duration = TimeSpan.FromSeconds(Math.Min(20, videoSeconds));
+        var start = TimeSpan.FromSeconds((videoSeconds - duration.TotalSeconds) / 2);
+        _logger?.ILog("📼 Video < 60s: extracting centered 20s chunk.");
+        return ExtractSingleChunk(start, duration, "chunk_1.mp4");
+    }
+
+    if (videoSeconds < 180)
+    {
+        // Medium: two chunks at 30% and 60%
+        var first = TimeSpan.FromSeconds(videoSeconds * 0.3);
+        var second = TimeSpan.FromSeconds(videoSeconds * 0.6);
+        _logger?.ILog("📼 Video < 3min: extracting 2 strategic chunks.");
+
+        ExtractChunk(first, chunkDuration, "chunk_1.mp4", outputFiles);
+        ExtractChunk(second, chunkDuration, "chunk_2.mp4", outputFiles);
+        return outputFiles;
+    }
+
+    // Standard: use 20%–80% logic
+    var startRange = videoSeconds * 0.2;
+    var endRange = videoSeconds * 0.8;
+    var usableRange = endRange - startRange;
+    double totalRequired = numberOfChunks * chunkDuration.TotalSeconds;
+
+    if (usableRange < totalRequired)
+    {
+        _logger?.WLog("⚠️ Not enough space in 20%–80% range, falling back to full duration and single chunk.");
+        return ExtractSingleChunk(TimeSpan.Zero, _duration, "chunk_1.mp4");
+    }
+
+    var spacing = usableRange / (numberOfChunks + 1);
+    for (int i = 0; i < numberOfChunks; i++)
+    {
+        var start = TimeSpan.FromSeconds(startRange + spacing * (i + 1));
+        var file = $"chunk_{i + 1}.mp4";
+        ExtractChunk(start, chunkDuration, file, outputFiles);
+    }
+
+    return outputFiles;
+}
+
+    // Extracts a single chunk and returns the list
+    private List<string> ExtractSingleChunk(TimeSpan start, TimeSpan duration, string fileName)
     {
         var outputFiles = new List<string>();
-        Directory.CreateDirectory(_tempDir);
+        ExtractChunk(start, duration, fileName, outputFiles);
+        return outputFiles;
+    }
 
-        var videoDurationSeconds = _duration.TotalSeconds;
+    // Handles actual ffmpeg call and output check
+    private void ExtractChunk(TimeSpan start, TimeSpan duration, string fileName, List<string> outputFiles)
+    {
+        var outputFile = Path.Combine(_tempDir, fileName);
 
-        // Calculate 20%–80% range
-        var startRange = videoDurationSeconds * 0.2;
-        var endRange = videoDurationSeconds * 0.8;
-        var usableRange = endRange - startRange;
-
-        double totalRequired = numberOfChunks * chunkDuration.TotalSeconds;
-
-        if (usableRange < totalRequired)
+        if (File.Exists(outputFile) && new FileInfo(outputFile).Length > 1000)
         {
-            _logger?.WLog("⚠️ Not enough space in 20%–80% range, falling back to full duration and single chunk.");
-
-            var start = TimeSpan.Zero;
-            var chunkLength = chunkDuration > _duration ? _duration : chunkDuration;
-            var outputFile = Path.Combine(_tempDir, $"chunk_1.mp4");
-
-            if (!File.Exists(outputFile) || new FileInfo(outputFile).Length <= 1000)
-            {
-                _logger?.ILog($"✂️ Extracting fallback chunk at 0s for {chunkLength}");
-
-                ExecuteProcess(new()
-                {
-                    Command = _ffmpeg,
-                    ArgumentList =
-                    [
-                        "-hide_banner", "-y",
-                        "-ss", "0",
-                        "-i", _inputFile,
-                        "-t", chunkLength.TotalSeconds.ToString(CultureInfo.InvariantCulture),
-                        "-map", "0:v:0",
-                        "-c:v", "copy",
-                        outputFile
-                    ]
-                });
-            }
-
-            if (File.Exists(outputFile))
-                outputFiles.Add(outputFile);
-
-            return outputFiles;
+            outputFiles.Add(outputFile);
+            return;
         }
 
-        // Otherwise, continue normal 20–80% extraction
-        var spacing = usableRange / (numberOfChunks + 1);
+        _logger?.ILog($"✂️ Extracting chunk at {start:g} for {duration:g}");
 
-        for (int i = 0; i < numberOfChunks; i++)
-        {
-            var start = TimeSpan.FromSeconds(startRange + spacing * (i + 1));
-            var outputFile = Path.Combine(_tempDir, $"chunk_{i + 1}.mp4");
-
-            if (File.Exists(outputFile) && new FileInfo(outputFile).Length > 1000)
-            {
-                outputFiles.Add(outputFile);
-                continue;
-            }
-
-            _logger?.ILog($"✂️ Extracting chunk {i + 1} at {start}");
-
-            ExecuteProcess(new()
+        if (ExecuteProcess(new()
             {
                 Command = _ffmpeg,
                 ArgumentList =
@@ -109,18 +124,19 @@ public class VmafCrfOptimizer
                     "-hide_banner", "-y",
                     "-ss", start.TotalSeconds.ToString(CultureInfo.InvariantCulture),
                     "-i", _inputFile,
-                    "-t", chunkDuration.TotalSeconds.ToString(CultureInfo.InvariantCulture),
+                    "-t", duration.TotalSeconds.ToString(CultureInfo.InvariantCulture),
                     "-map", "0:v:0",
                     "-c:v", "copy",
                     outputFile
                 ]
-            });
-
-            if (File.Exists(outputFile))
-                outputFiles.Add(outputFile);
+            }).Failed(out var error))
+        {
+            _logger.ELog($"Failed extracting chunk: {error}");
+            return;
         }
 
-        return outputFiles;
+        if (File.Exists(outputFile))
+            outputFiles.Add(outputFile);
     }
 
     private string GetCrfParameter(string encoder)
