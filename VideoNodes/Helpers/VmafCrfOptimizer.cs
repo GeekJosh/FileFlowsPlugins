@@ -514,7 +514,7 @@ public class VmafCrfOptimizer
         for(int i=0; i<chunks.Count; i++)
         {
             var chunk =  chunks[i];
-            CrfTesting?.Invoke(crf, i / ((float)chunks.Count));
+            CrfTesting?.Invoke(crf, Math.Clamp(i / ((float)chunks.Count) * 100, 0, 100));
             var r = ComputeVmaf(chunk, encoder, pixelFormat, crf, preset);
             if (!string.IsNullOrWhiteSpace(r.Error))
             {
