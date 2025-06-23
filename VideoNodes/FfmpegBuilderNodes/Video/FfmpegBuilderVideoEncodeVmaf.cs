@@ -39,21 +39,21 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     /// Gets the encoders options
     /// </summary>
     public static List<ListOption> EncoderOptions => VideoHelper.Encoders;
-
-    /// <summary>
-    /// Gets or sets te maximum size a file is estimated to be to do the encodce
-    /// </summary>
-    [Slider(3)]
-    [Range(1, 100)]
-    [DefaultValue(90)]
-    public float MaxSizePercent { get; set; } = 90f;
     
     /// <summary>
     /// Gets or sets the mode to use for determing the VMAF
     /// </summary>
-    [Select(nameof(VmafOptions), 4)]
+    [Select(nameof(VmafOptions), 3)]
     [DefaultValue(VmafMode.Default)] 
     public VmafMode Mode { get; set; } = VmafMode.Default;
+
+    /// <summary>
+    /// Gets or sets te maximum size a file is estimated to be to do the encodce
+    /// </summary>
+    [Slider(4)]
+    [Range(1, 100)]
+    [DefaultValue(90)]
+    public float MaxSizePercent { get; set; } = 90f;
 
     /// <summary>
     /// Gets or sets the minimum VMAF score
