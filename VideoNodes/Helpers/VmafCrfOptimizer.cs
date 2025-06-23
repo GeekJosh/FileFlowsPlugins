@@ -267,7 +267,7 @@ public class VmafCrfOptimizer
                 Crf = t.Crf.ToString("0.##"),
                 Vmaf = t.Vmaf.ToString("0.00"),
                 SizePercent = t.SizePercent.ToString("0.00"),
-                Acceptable = t.Acceptable ? "Yes" : "No"
+                Acceptable = t.Acceptable ? "  ✅"   : "  ❌  "
             });
 
         _logger?.Table(formatted, "📊 CRF Evaluation Summary");
