@@ -469,12 +469,13 @@ public class VmafCrfOptimizer
 
         try
         {
-            ExecuteProcess(new()
-            {
-                LogCommand = true,
-                Command = _ffmpeg,
-                ArgumentList = GetArguments(original, encoded, encoder, crf, pixelFormat, preset)
-            });
+            if (ExecuteProcess(new()
+                {
+                    LogCommand = true,
+                    Command = _ffmpeg,
+                    ArgumentList = GetArguments(original, encoded, encoder, crf, pixelFormat, preset)
+                }).Failed(out var error))
+                throw new Exception(error);
 
             string fpsStr = ((int)Math.Round(_fps)).ToString();
 
@@ -483,7 +484,7 @@ public class VmafCrfOptimizer
                 $"[1:v]fps={fpsStr},scale=1920:1080:flags=bicubic,setpts=PTS-STARTPTS[ref];" +
                 "[dist][ref]libvmaf";
 
-            var output = ExecuteProcess(new()
+            var outputResult = ExecuteProcess(new()
             {
                 Command = _ffmpeg,
                 ArgumentList =
@@ -495,6 +496,10 @@ public class VmafCrfOptimizer
                     "-f", "null", "-"
                 ]
             });
+            if (outputResult.Failed(out error))
+                throw new Exception(error);
+
+            var output = outputResult.Value;
 
             var match = Regex.Match(output, @"VMAF score:\s*([0-9.]+)");
             if (match.Success && float.TryParse(match.Groups[1].Value, out float vmaf))
@@ -561,18 +566,18 @@ public class VmafCrfOptimizer
         return args;
     }
 
-    private string ExecuteProcess(ProcessParameters p)
+    private Result<string> ExecuteProcess(ProcessParameters p)
     {
+        string Escaped(string arg)
+        {
+            return arg.Contains(' ') || arg.Contains('"') || arg.Contains('\'')
+                ? $"\"{arg.Replace("\"", "\\\"")}\""
+                : arg;
+        }
+
+        var commandLine = $"{p.Command} {string.Join(" ", p.ArgumentList.Select(Escaped))}";
         if (p.LogCommand)
         {
-            string Escaped(string arg)
-            {
-                return arg.Contains(' ') || arg.Contains('"') || arg.Contains('\'')
-                    ? $"\"{arg.Replace("\"", "\\\"")}\""
-                    : arg;
-            }
-
-            var commandLine = $"{p.Command} {string.Join(" ", p.ArgumentList.Select(Escaped))}";
             _logger?.ILog($"Executing: {commandLine}");
         }
 
@@ -583,8 +588,8 @@ public class VmafCrfOptimizer
             Silent = true
         }).GetAwaiter().GetResult();
 
-        if (p.ThrowOnError && result.ExitCode != 0)
-            throw new Exception($"Command failed: {p.Command} {string.Join(" ", p.ArgumentList)}");
+        if (result.ExitCode != 0)
+            return Result<string>.Fail($"Command failed: {commandLine}\n{result.Output}");
 
         return result.Output ?? string.Empty;
     }
@@ -593,7 +598,6 @@ public class VmafCrfOptimizer
     {
         public string Command { get; set; }
         public List<string> ArgumentList { get; set; } = new();
-        public bool ThrowOnError { get; set; } = true;
 
         /// <summary>
         /// If true, logs the command before executing it.

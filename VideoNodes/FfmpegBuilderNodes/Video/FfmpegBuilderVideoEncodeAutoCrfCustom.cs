@@ -115,7 +115,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public static List<ListOption> VmafOptions => new ()
     {
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Default)}", Value = VmafMode.Default },
-        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Deep)}", Value = VmafMode.Deep },
+        new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Thorough)}", Value = VmafMode.Thorough },
         new () { Label = $"Flow.Parts.{nameof(FfmpegBuilderVideoEncodeVmaf)}.Enums.{nameof(VmafMode)}.{nameof(VmafMode.Custom)}", Value = VmafMode.Custom },
     };
 
@@ -152,25 +152,25 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         int sampleLengthSeconds = Mode switch
         {
             VmafMode.Default => 10,
-            VmafMode.Deep => 20,
+            VmafMode.Thorough => 20,
             _ => SampleLengthSeconds > 2 ? SampleLengthSeconds : 10
         };
         int samples = Mode switch
         {
             VmafMode.Default => 3,
-            VmafMode.Deep => 5,
+            VmafMode.Thorough => 5,
             _ => Samples > 1 ? SampleLengthSeconds : 3
         };
         float crfLow = Mode switch
         {
             VmafMode.Default => 15,
-            VmafMode.Deep => 15,
+            VmafMode.Thorough => 15,
             _ => CrfLow > 3 ? CrfLow : 15
         };
         float crfHigh = Mode switch
         {
             VmafMode.Default => 25,
-            VmafMode.Deep => 25,
+            VmafMode.Thorough => 25,
             _ => CrfHigh > crfLow ? CrfHigh : Math.Max(25, crfLow + 5)
         };
 
@@ -232,7 +232,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public enum VmafMode
     {
         Default = 0,
-        Deep = 1, // dont like this name
+        Thorough = 1,
         Custom = 2
     }
 }
