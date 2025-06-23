@@ -29,6 +29,7 @@ public class VmafCrfOptimizer
 
 
     public event Action<float, float> CrfTesting;
+    public event Action<string> VmafStep;
 
     public VmafCrfOptimizer(NodeParameters args, string encodeFFmpeg, string vmafFfmpeg, string inputFile, float fps,
         TimeSpan duration)
@@ -264,10 +265,10 @@ public class VmafCrfOptimizer
             .OrderBy(t => t.Crf)
             .Select(t => new
             {
-                Crf = t.Crf.ToString("0.##"),
-                Vmaf = t.Vmaf.ToString("0.00"),
-                SizePercent = t.SizePercent.ToString("0.00"),
-                Acceptable = t.Acceptable ? "  ✅"   : "  ❌  "
+                Crf = t.Crf.ToString("0.##").PadLeft(2).PadRight(2),
+                Vmaf = t.Vmaf.ToString("0.00".PadLeft(2).PadRight(2)),
+                SizePercent = t.SizePercent.ToString("0.00").PadLeft(2).PadRight(2),
+                Acceptable = (t.Acceptable ? "✅" : "❌").PadLeft(2).PadRight(2)
             });
 
         _logger?.Table(formatted, "📊 CRF Evaluation Summary");
@@ -560,6 +561,7 @@ public class VmafCrfOptimizer
 
         try
         {
+            VmafStep?.Invoke("Encoding Segment");
             if (ExecuteProcess(new()
                 {
                     LogCommand = true,
@@ -575,6 +577,7 @@ public class VmafCrfOptimizer
                 $"[1:v]fps={fpsStr},scale=1920:1080:flags=bicubic,setpts=PTS-STARTPTS[ref];" +
                 "[dist][ref]libvmaf";
 
+            VmafStep?.Invoke("Computing VMAF for Segment");
             var outputResult = ExecuteProcess(new()
             {
                 Command = _vmafFFmpeg,
@@ -612,6 +615,8 @@ public class VmafCrfOptimizer
             result.Error = ex.Message;
             _logger?.ELog($"❌ ComputeVmaf failed: {ex.Message}");
         }
+
+        VmafStep?.Invoke(null);
 
         return result;
     }

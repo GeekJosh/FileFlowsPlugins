@@ -232,6 +232,10 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
             args.RecordAdditionalInfo("VMAF Step", $"Testing {crf:F1} CRF", 1, null);
             args.PartPercentageUpdate?.Invoke(percent);
         };
+        optimizer.VmafStep += (text) =>
+        {
+            args.RecordAdditionalInfo("Status", text?.EmptyAsNull(), 1, null);
+        };
 
         args.RecordAdditionalInfo("VMAF Step", "Extracting Samples", 1, null);
         
