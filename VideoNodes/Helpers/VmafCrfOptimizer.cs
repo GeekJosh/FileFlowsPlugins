@@ -178,7 +178,7 @@ public class VmafCrfOptimizer
         VmafResult best = null;
         float bestCrf = -1;
 
-        _logger?.ILog($"🔍 Trying highest CRF first: {crfEnd}");
+        _logger?.ILog($"🔍 Testing CRF {crfEnd}");
         var topResult = TryCrf(chunks, encoder, pixelFormat, preset, crfEnd);
         if (topResult == null)
         {
@@ -193,8 +193,9 @@ public class VmafCrfOptimizer
         }
 
         _logger?.ILog(
-            $"ℹ️ Highest CRF {crfEnd} did not meet VMAF target ({topResult.Vmaf:F2} < {minVmaf}), trying lowest CRF {crfStart}...");
+            $"ℹ️ Highest CRF {crfEnd} did not meet VMAF target ({topResult.Vmaf:F2} < {minVmaf}).");
 
+        _logger?.ILog($"🔍 Testing CRF {crfStart}");
         var lowResult = TryCrf(chunks, encoder, pixelFormat, preset, crfStart);
         if (lowResult == null)
         {
