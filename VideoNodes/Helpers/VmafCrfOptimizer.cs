@@ -183,15 +183,14 @@ public class VmafCrfOptimizer
 
         List<CrfTrial> trials = new();
 
-        var topTrial = EvaluateCrf("initial high", crfEnd, minVmaf, chunks, encoder, pixelFormat, preset, vmafFps, trials);
-        if (topTrial == null)
+        var (topTrial, topVmafResult) = EvaluateCrf("initial high", crfEnd, minVmaf, chunks, encoder, pixelFormat, preset, vmafFps, trials);
+        if (topTrial == null || topVmafResult ==  null)
             return (-1, null, false);
 
         if (topTrial.Acceptable)
-            return (crfEnd, TryCrf(chunks, encoder, pixelFormat, preset, crfEnd, vmafFps),
-                topTrial.SizePercent <= maxSizePercent);
+            return (crfEnd, topVmafResult, topTrial.SizePercent <= maxSizePercent);
 
-        var lowTrial = EvaluateCrf("initial low", crfStart, minVmaf, chunks, encoder, pixelFormat, preset, vmafFps, trials);
+        var (lowTrial, lowVmafResult) = EvaluateCrf("initial low", crfStart, minVmaf, chunks, encoder, pixelFormat, preset, vmafFps, trials);
         if (lowTrial == null)
             return (-1, null, false);
 
@@ -211,7 +210,7 @@ public class VmafCrfOptimizer
         while (low + crfStep <= high && iterations < maxIterations)
         {
             float mid = RoundToStep((low + high) / 2f, crfStep);
-            var trial = EvaluateCrf($"iteration {iterations + 1}", mid, minVmaf, chunks, encoder, pixelFormat,
+            var (trial, vmafResult) = EvaluateCrf($"iteration {iterations + 3}", mid, minVmaf, chunks, encoder, pixelFormat,
                 preset, vmafFps, trials);
 
             if (trial == null)
@@ -220,7 +219,7 @@ public class VmafCrfOptimizer
             }
             else if (trial.Acceptable)
             {
-                bestResult = TryCrf(chunks, encoder, pixelFormat, preset, mid, vmafFps);
+                bestResult = vmafResult; //TryCrf(chunks, encoder, pixelFormat, preset, mid, vmafFps);
                 bestCrf = mid;
                 low = mid + crfStep;
             }
@@ -278,7 +277,7 @@ public class VmafCrfOptimizer
     }
 
 
-    private CrfTrial? EvaluateCrf(string label, float crf, float minVmaf, List<string> chunks,
+    private (CrfTrial? trial,VmafResult? vmafResult) EvaluateCrf(string label, float crf, float minVmaf, List<string> chunks,
         string encoder, string pixelFormat, string preset, int vmafFps, List<CrfTrial> results)
     {
         _logger?.ILog($"🔍 Testing CRF {crf} ({label})...");
@@ -289,7 +288,7 @@ public class VmafCrfOptimizer
         if (result == null)
         {
             _logger?.ILog($"⚠️ CRF {crf} ({label}) could not be evaluated.");
-            return null;
+            return (null, null);
         }
 
         bool acceptable = result.Vmaf >= minVmaf;
@@ -303,7 +302,7 @@ public class VmafCrfOptimizer
         else
             _logger?.ILog($"ℹ️ CRF {crf} ({label}) below VMAF target: {result.Vmaf:F2} < {minVmaf}.");
 
-        return crfResult;
+        return (crfResult, result);
     }
 
     /// <summary>

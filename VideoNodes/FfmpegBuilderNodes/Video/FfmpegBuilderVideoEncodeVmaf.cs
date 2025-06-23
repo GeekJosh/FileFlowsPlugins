@@ -164,7 +164,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         float maxBitrate = Mode is VmafMode.Custom && MaxBitrate > 100 ? MaxBitrate : 10_000;
         float maxPercent = MaxSizePercent < 1 ? 90 : Math.Clamp(MaxSizePercent, 1, 100);
         var targetBitRate = maxBitrate * 1000;
-        float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 95f;
+        float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 95.5f;
         int samples = Mode switch
         {
             VmafMode.FastScan => 2,
