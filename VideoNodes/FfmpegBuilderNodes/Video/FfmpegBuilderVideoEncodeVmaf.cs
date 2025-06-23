@@ -56,13 +56,12 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
     public float MinVmaf { get; set; } = 93f;
 
     /// <summary>
-    /// The maximum bitrate allowed for encoding, in megabits per second (Mbps).
-    /// Defaults to 11.5.
+    /// The maximum bitrate allowed for encoding, in kilobits per second (Kbps).
     /// </summary>
-    [NumberFloat(5)]
-    [DefaultValue(11.5f)]
+    [NumberInt(5)]
+    [DefaultValue(10_000)]
     [ConditionEquals(nameof(Mode), VmafMode.Custom)]
-    public float MaxBitrate { get; set; } = 11.5f;
+    public float MaxBitrate { get; set; } = 10_000;
 
     /// <summary>
     /// Gets or sets the number of samples to take 
@@ -146,8 +145,8 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         if (videoBitRate <= 0)
             return args.Fail("Unable to determine video bitrate");
 
-        float maxBitrate = Mode is VmafMode.Custom ? MaxBitrate : 11.5f;
-        var targetBitRate = maxBitrate * 1024 * 1024;
+        float maxBitrate = Mode is VmafMode.Custom && MaxBitrate > 100 ? MaxBitrate : 10_000;
+        var targetBitRate = maxBitrate * 1000;
         float minVmaf = Mode is VmafMode.Custom ? MinVmaf : 94f;
         int sampleLengthSeconds = Mode switch
         {
@@ -202,7 +201,7 @@ public class FfmpegBuilderVideoEncodeVmaf : FfmpegBuilderNode
         if (videoBitRate > targetBitRate)
         {
             args.Logger?.WLog("Unacceptable bitrate");
-            args.Logger?.WLog($"Bitrate is {GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than {MaxBitrate} Mbps");
+            args.Logger?.WLog($"Bitrate is {GeneralHelper.HumanizeBitrate(videoBitRate)}, higher than {GeneralHelper.HumanizeBitrate(maxBitrate)}");
             args.Logger?.ILog("Will fallback to bitrate encoding");
             forceEncode = true;
         }

@@ -23,10 +23,10 @@ public class GeneralHelper
         string[] sizes = { "bps", "Kbps", "Mbps", "Gbps", "Tbps" };
         int order = 0;
         double len = bitrate;
-        while (len >= 1024 && order < sizes.Length - 1)
+        while (len >= 1000 && order < sizes.Length - 1)
         {
             order++;
-            len /= 1024;
+            len /= 1000;
         }
 
         return $"{len:0.##} {sizes[order]}";
